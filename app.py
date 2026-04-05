@@ -591,7 +591,7 @@ with tab4:
             elif val < 0: return "color: #f87171"
         return ""
 
-    styled = df_table.style.applymap(highlight_netcf, subset=["Net CF ($M)"])
+    styled = df_table.style.map(highlight_netcf, subset=["Net CF ($M)"])
     st.dataframe(styled, use_container_width=True, height=480)
 
     # Download
