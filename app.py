@@ -710,8 +710,8 @@ elif page == "Data Table":
                 "Lifetime Rev ($M)": round(r["lr"]/1e6, 1),
             })
         df = pd.DataFrame(rows)
-        st.dataframe(df.style.background_gradient(
-            subset=["Total Rev ($M)", "Net CF ($M)"], cmap="Greens"),
+        st.dataframe(df.style.bar(
+            subset=["Total Rev ($M)", "Net CF ($M)"], color="#bbf7d0"),
             use_container_width=True, height=500)
         st.download_button("⬇ Download CSV", df.to_csv(index=False).encode(),
                            "revenue_summary.csv", "text/csv")
@@ -724,8 +724,8 @@ elif page == "Data Table":
             row["Total MBM ($M)"] = round(r["mb"]/1e6, 2)
             mbrows.append(row)
         dfm = pd.DataFrame(mbrows)
-        st.dataframe(dfm.style.background_gradient(
-            subset=["Total MBM ($M)"], cmap="Greens"),
+        st.dataframe(dfm.style.bar(
+            subset=["Total MBM ($M)"], color="#bbf7d0"),
             use_container_width=True, height=500)
         st.download_button("⬇ Download CSV", dfm.to_csv(index=False).encode(),
                            "mbm_breakdown.csv", "text/csv")
@@ -738,8 +738,9 @@ elif page == "Data Table":
             z=z, x=mlbl, y=TECH_SHORT,
             colorscale=[[0,"#f9fafb"],[0.01,"#d1fae5"],[1,"#059669"]],
             showscale=True,
-            colorbar=dict(title="Active", tickvals=[0,1], ticktext=["No","Yes"],
-                tickfont=dict(size=9), titlefont=dict(size=9),
+            colorbar=dict(title=dict(text="Active", font=dict(size=9)),
+                tickvals=[0,1], ticktext=["No","Yes"],
+                tickfont=dict(size=9),
                 bgcolor="rgba(0,0,0,0)"),
             hovertemplate="<b>%{y}</b> × <b>%{x}</b><br>Active: %{z}<extra></extra>",
         ))
@@ -998,8 +999,8 @@ elif page == "NPV Analysis":
             "Viable (no MBM)?": "✅ Yes" if npv_n_i >= 0 else "❌ No",
         })
     df_npv = pd.DataFrame(npv_rows)
-    st.dataframe(df_npv.style.background_gradient(
-        subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"], cmap="RdYlGn"),
+    st.dataframe(df_npv.style.bar(
+        subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"], color="#bbf7d0", align="mid"),
         use_container_width=True, height=540)
     st.download_button("⬇ Download NPV CSV", df_npv.to_csv(index=False).encode(),
                        "npv_analysis.csv", "text/csv")
@@ -1322,7 +1323,7 @@ elif page == "Spatial Viability":
         y=df_sv["Country"].tolist(),
         colorscale=[[0,"#f9fafb"],[0.01,"#d1fae5"],[1,"#059669"]],
         showscale=True,
-        colorbar=dict(title="USD/tCO₂e", titlefont=dict(size=9), tickfont=dict(size=9)),
+        colorbar=dict(title=dict(text="USD/tCO₂e", font=dict(size=9)), tickfont=dict(size=9)),
         hovertemplate="<b>%{y}</b><br>%{x}: <b>$%{z}</b><extra></extra>",
     ))
     fig_heat.update_layout(**pl(480, ml=120, mr=60, mt=20, mb=30))
@@ -1330,8 +1331,8 @@ elif page == "Spatial Viability":
 
     # ── Full data table ──
     st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
-    st.dataframe(df_sv.style.background_gradient(
-        subset=["NPV ($M)", "Net CF ($M)", "MBM Rev ($M)"], cmap="RdYlGn"),
+    st.dataframe(df_sv.style.bar(
+        subset=["NPV ($M)", "Net CF ($M)", "MBM Rev ($M)"], color="#bbf7d0", align="mid"),
         use_container_width=True, height=600)
     st.download_button("⬇ Download Spatial Viability CSV",
                        df_sv.to_csv(index=False).encode(),
