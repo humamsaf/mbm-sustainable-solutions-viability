@@ -1245,7 +1245,10 @@ elif page == "Spatial Viability":
             "Viable?":         "✅ Yes" if npv_sv >= 0 else "❌ No",
         })
 
-    df_sv = pd.DataFrame(sv_rows).sort_values(viab_metric.replace(" ($M)","").strip(), ascending=False).reset_index(drop=True)
+    # Map radio label to exact DataFrame column
+    _metric_col_map = {"NPV ($M)": "NPV ($M)", "Net CF ($M)": "Net CF ($M)", "R/C Ratio": "R/C Ratio"}
+    _sort_col = _metric_col_map.get(viab_metric, "NPV ($M)")
+    df_sv = pd.DataFrame(sv_rows).sort_values(_sort_col, ascending=False).reset_index(drop=True)
 
     # ── KPIs ──
     viable_count   = (df_sv["Viable?"] == "✅ Yes").sum()
