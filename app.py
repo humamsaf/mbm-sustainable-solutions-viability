@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 
 st.set_page_config(
@@ -12,19 +11,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ─────────────────────────────────────────────
-# DESIGN SYSTEM — JobEntry-inspired Light Green
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+# CSS — JobEntry-inspired Light Green
+# Fix 1: block-container padding so header is NOT cut off
+# Fix 2: sidebar only highlights active nav button
+# Fix 3: chart wrappers via CSS [data-testid] instead of raw HTML divs
+# ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 /* ── GLOBAL ── */
-html, body, [class*="css"] {
+html, body, [class*="css"], .stApp {
     font-family: 'Inter', sans-serif !important;
     background: #f5f7fa !important;
 }
-#MainMenu, footer { visibility: hidden; }
+#MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
 
 /* ── SIDEBAR ── */
@@ -32,184 +34,206 @@ html, body, [class*="css"] {
     min-width: 240px !important;
     max-width: 240px !important;
     background: #ffffff !important;
-    border-right: 1px solid #e8edf2 !important;
-    box-shadow: 2px 0 12px rgba(0,0,0,0.04) !important;
+    border-right: 1px solid #e2e8f0 !important;
+    box-shadow: 2px 0 16px rgba(0,0,0,0.05) !important;
 }
-[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 [data-testid="stSidebarContent"] { padding: 0 !important; }
+[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 
-/* ── MAIN CONTENT ── */
+/* ── FIX MAIN AREA — no cut-off ── */
 .block-container {
-    background: #f5f7fa !important;
-    padding: 0 2rem 2rem 2rem !important;
+    padding: 1.5rem 1.75rem 2rem 1.75rem !important;
     max-width: 100% !important;
+    background: #f5f7fa !important;
 }
 
 /* ── PAGE HEADER ── */
 .page-header {
-    background: linear-gradient(135deg, #065f46 0%, #059669 60%, #10b981 100%);
+    background: linear-gradient(135deg, #065f46 0%, #059669 55%, #34d399 100%);
     border-radius: 14px;
-    padding: 28px 32px;
-    margin-bottom: 24px;
-    position: relative; overflow: hidden;
+    padding: 26px 30px 24px 30px;
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
 }
 .page-header::after {
-    content:''; position:absolute; right:-40px; top:-40px;
-    width:180px; height:180px; border-radius:50%;
-    background: rgba(255,255,255,0.06);
+    content: '';
+    position: absolute; right: -50px; top: -50px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: rgba(255,255,255,0.07);
+    pointer-events: none;
+}
+.page-header-badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 99px;
+    padding: 3px 12px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
 }
 .page-header-title {
-    font-size:1.5rem; font-weight:800; color:#ffffff;
-    letter-spacing:-0.02em; margin:0 0 4px 0;
+    font-size: 1.45rem; font-weight: 800;
+    color: #ffffff; letter-spacing: -0.02em;
+    margin: 0 0 5px 0; line-height: 1.2;
 }
 .page-header-sub {
-    font-size:0.82rem; color:rgba(255,255,255,0.75);
-    margin:0; font-weight:400;
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.72);
+    margin: 0; font-weight: 400;
 }
 
 /* ── KPI CARDS ── */
 .kpi-card {
     background: #ffffff;
-    border: 1px solid #e8edf2;
+    border: 1px solid #e2e8f0;
     border-radius: 12px;
-    padding: 20px 22px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-    transition: box-shadow 0.2s;
-    position: relative; overflow: hidden;
+    padding: 18px 20px 16px 20px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.05);
+    position: relative;
+    overflow: hidden;
+    height: 100%;
 }
 .kpi-card::before {
-    content:''; position:absolute; left:0; top:0; bottom:0;
-    width:4px; border-radius:12px 0 0 12px;
-    background: linear-gradient(180deg,#059669,#10b981);
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px; border-radius: 12px 0 0 12px;
+    background: linear-gradient(180deg, #059669, #34d399);
 }
 .kpi-value {
-    font-size:1.65rem; font-weight:800;
-    color:#065f46; line-height:1;
-    margin-bottom:6px; font-variant-numeric:tabular-nums;
+    font-size: 1.55rem; font-weight: 800;
+    color: #064e3b; line-height: 1;
+    margin-bottom: 6px; font-variant-numeric: tabular-nums;
 }
 .kpi-label {
-    font-size:0.68rem; font-weight:700;
-    color:#6b7280; text-transform:uppercase; letter-spacing:0.08em;
+    font-size: 0.66rem; font-weight: 700;
+    color: #9ca3af; text-transform: uppercase; letter-spacing: 0.09em;
+    margin-bottom: 4px;
 }
-.kpi-sub {
-    font-size:0.75rem; color:#059669;
-    margin-top:5px; font-weight:500;
-}
+.kpi-sub { font-size: 0.73rem; color: #059669; font-weight: 500; }
 
 /* ── SECTION HEADING ── */
 .sec-head {
-    font-size:0.72rem; font-weight:700; color:#059669;
-    text-transform:uppercase; letter-spacing:0.1em;
-    margin:24px 0 14px 0;
-    display:flex; align-items:center; gap:8px;
+    font-size: 0.68rem; font-weight: 700;
+    color: #059669; text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 20px 0 12px 0;
+    display: flex; align-items: center; gap: 8px;
 }
 .sec-head::after {
-    content:''; flex:1; height:2px;
-    background: linear-gradient(90deg,#d1fae5,transparent);
+    content: ''; flex: 1; height: 1.5px;
+    background: linear-gradient(90deg, #d1fae5, transparent);
 }
 
-/* ── CHART CARDS ── */
-.chart-wrap {
-    background:#ffffff;
-    border:1px solid #e8edf2;
-    border-radius:12px;
-    padding:20px 22px;
-    box-shadow:0 2px 8px rgba(0,0,0,0.04);
-    margin-bottom:14px;
+/* ── CHART CONTAINERS — wrap plotly natively ── */
+[data-testid="stPlotlyChart"] {
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px !important;
+    padding: 14px !important;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.04) !important;
+    overflow: hidden !important;
 }
-.chart-title { font-size:0.85rem; font-weight:700; color:#1f2937; margin-bottom:2px; }
-.chart-sub   { font-size:0.73rem; color:#9ca3af; margin-bottom:10px; }
+
+/* ── SIDEBAR NAV BUTTONS — ONLY active is green ── */
+[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    color: #374151 !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    text-align: left !important;
+    padding: 10px 14px !important;
+    box-shadow: none !important;
+    transition: background 0.15s, color 0.15s !important;
+    width: 100% !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: #f0fdf4 !important;
+    color: #059669 !important;
+}
+/* Active nav button override via key prefix — handled in Python with active_style */
+
+/* ── RESET BUTTON — distinct style ── */
+.reset-btn > button {
+    background: #fff7ed !important;
+    color: #c2410c !important;
+    border: 1px solid #fed7aa !important;
+    border-radius: 8px !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+}
 
 /* ── PROGRESS BARS ── */
-.prog-wrap { margin-bottom:10px; }
-.prog-row  { display:flex; justify-content:space-between; font-size:0.74rem; color:#6b7280; margin-bottom:4px; }
-.prog-row b { color:#1f2937; font-weight:600; }
-.prog-bg   { background:#f0faf5; border-radius:6px; height:6px; }
-.prog-fill { height:6px; border-radius:6px;
-    background:linear-gradient(90deg,#059669,#34d399); }
+.prog-wrap { margin-bottom: 9px; }
+.prog-row {
+    display: flex; justify-content: space-between;
+    font-size: 0.73rem; color: #6b7280; margin-bottom: 3px;
+}
+.prog-row b { color: #1f2937; font-weight: 600; }
+.prog-bg { background: #f0fdf4; border-radius: 6px; height: 5px; }
+.prog-fill {
+    height: 5px; border-radius: 6px;
+    background: linear-gradient(90deg, #059669, #34d399);
+}
 
-/* ── MECHANISM CHIPS ── */
-.chip { display:inline-flex; align-items:center; gap:4px;
-    padding:5px 12px; border-radius:99px; font-size:0.71rem;
-    font-weight:600; margin:3px; }
-.chip-on  { background:#d1fae5; border:1px solid #6ee7b7; color:#065f46; }
-.chip-off { background:#f3f4f6; border:1px solid #e5e7eb; color:#9ca3af; }
+/* ── MBM CHIPS ── */
+.chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 11px; border-radius: 99px;
+    font-size: 0.7rem; font-weight: 600; margin: 2px;
+}
+.chip-on  { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
+.chip-off { background: #f9fafb; border: 1px solid #e5e7eb; color: #d1d5db; }
 
-/* ── STREAMLIT TABS ── */
+/* ── TABS ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap:0; background:transparent !important;
-    border-bottom:2px solid #e8edf2 !important;
+    gap: 0; background: transparent !important;
+    border-bottom: 2px solid #e2e8f0 !important;
 }
 .stTabs [data-baseweb="tab"] {
-    background:transparent !important; font-size:0.8rem !important;
-    color:#6b7280 !important; padding:10px 20px !important;
-    border-bottom:2px solid transparent !important; margin-bottom:-2px !important;
+    background: transparent !important;
+    font-size: 0.79rem !important;
+    color: #9ca3af !important;
+    padding: 9px 20px !important;
+    border-bottom: 2px solid transparent !important;
+    margin-bottom: -2px !important;
 }
 .stTabs [aria-selected="true"] {
-    color:#059669 !important;
-    border-bottom:2px solid #059669 !important;
-    font-weight:700 !important;
+    color: #059669 !important;
+    border-bottom: 2px solid #059669 !important;
+    font-weight: 700 !important;
 }
 
 /* ── SLIDERS ── */
-.stSlider [data-testid="stSliderThumb"] { background:#059669 !important; }
-.stSlider > div > div > div > div { background:#059669 !important; }
+[data-testid="stSlider"] [data-testid="stSliderThumb"] { background: #059669 !important; }
 
-/* ── SELECT/INPUTS ── */
-.stSelectbox [data-baseweb="select"] > div,
-.stNumberInput > div > div > input {
-    background:#ffffff !important;
-    border:1px solid #d1d5db !important;
-    border-radius:8px !important; font-size:0.82rem !important;
-    color:#1f2937 !important;
+/* ── SELECTBOX ── */
+[data-baseweb="select"] > div {
+    background: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    border-radius: 8px !important;
 }
 
-/* ── BUTTONS ── */
-.stButton > button {
-    background: linear-gradient(135deg,#059669,#10b981) !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius:8px !important; font-size:0.82rem !important;
-    font-weight:600 !important;
-    box-shadow:0 2px 8px rgba(5,150,105,0.3) !important;
-}
-.stButton > button:hover {
-    background: linear-gradient(135deg,#047857,#059669) !important;
-    box-shadow:0 4px 14px rgba(5,150,105,0.4) !important;
-}
-
-/* ── DATA TABLE ── */
+/* ── DATAFRAME ── */
 [data-testid="stDataFrameResizable"] {
-    border:1px solid #e8edf2 !important;
-    border-radius:12px !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
 }
 
-/* ── DIVIDER ── */
-hr { border-color:#e8edf2 !important; margin:16px 0 !important; }
-
-/* ── METRIC ── */
-[data-testid="stMetric"] {
-    background:#ffffff !important;
-    border:1px solid #e8edf2 !important;
-    border-radius:12px !important;
-    padding:16px 18px !important;
-    box-shadow:0 2px 6px rgba(0,0,0,0.04) !important;
-}
-[data-testid="stMetricValue"] { color:#065f46 !important; font-weight:800 !important; }
-[data-testid="stMetricDelta"]  { color:#059669 !important; }
-
-/* ── SIDEBAR SECTION ── */
-.sb-section {
-    font-size:0.62rem; font-weight:700; color:#9ca3af;
-    text-transform:uppercase; letter-spacing:0.1em;
-    padding:16px 20px 6px 20px;
-}
+hr { border-color: #e2e8f0 !important; margin: 12px 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
 # CONSTANTS
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
 TECHNOLOGIES = [
     "Solar PV & Wind Energy","Green Hydrogen","SAF (Sust. Aviation Fuel)","CCUS",
     "Battery Storage & EVs","Low-carbon Steel & Cement","Ammonia (green/blue)",
@@ -259,29 +283,26 @@ DEFAULT_PRICES = {
     "feebate":50,"electricity":60,"gas":8,"biomass":40
 }
 
-# ─────────────────────────────────────────────
-# PLOTLY THEME — green on white
-# ─────────────────────────────────────────────
-PBG  = "rgba(0,0,0,0)"
-FC   = "#374151"
-GC   = "rgba(0,0,0,0.05)"
 GREENS = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0"]
+PBG = "rgba(0,0,0,0)"
+FC  = "#374151"
+GC  = "rgba(5,150,105,0.07)"
 
-def pl(h=380, ml=20, mr=16, mt=16, mb=16):
+def pl(h=380, ml=20, mr=20, mt=20, mb=30):
     return dict(
         paper_bgcolor=PBG, plot_bgcolor=PBG,
         font=dict(family="Inter", color=FC, size=10),
-        height=h, margin=dict(l=ml,r=mr,t=mt,b=mb),
-        legend=dict(orientation="h", y=-0.2, font=dict(size=9)),
-        xaxis=dict(gridcolor=GC, linecolor="#e8edf2", zeroline=False),
-        yaxis=dict(gridcolor=GC, linecolor="#e8edf2", zeroline=False),
+        height=h, margin=dict(l=ml, r=mr, t=mt, b=mb),
+        legend=dict(orientation="h", y=-0.22, font=dict(size=9)),
+        xaxis=dict(gridcolor=GC, linecolor="#e2e8f0", zeroline=False,
+                   tickfont=dict(size=9)),
+        yaxis=dict(gridcolor=GC, linecolor="#e2e8f0", zeroline=False,
+                   tickfont=dict(size=9)),
     )
 
-# ─────────────────────────────────────────────
-# CALCULATIONS
-# ─────────────────────────────────────────────
 def calc_crf(w,l): return 1/l if w==0 else (w*(1+w)**l)/((1+w)**l-1)
-def compute(prices,t,ti):
+
+def compute(prices, t, ti):
     o=ti["annual_output"][t]; ck=ti["installed_capacity"][t]*1000
     lt=ti["project_lifetime"][t]; w=ti["wacc"][t]
     cap=ck*ti["capex_per_kw"][t]; crf=calc_crf(w,lt)
@@ -306,407 +327,496 @@ def compute(prices,t,ti):
                   "CBAM":cb,"CORSIA":co,"IMO Levy":im,"VCM/CDM":v,"AMC":am,"Feebate":fb}}
 
 def fm(v): return f"${v/1e6:.1f}M"
-def card(val,label,sub=""):
-    return (f'<div class="kpi-card"><div class="kpi-value">{val}</div>' +
-            f'<div class="kpi-label">{label}</div>' +
-            (f'<div class="kpi-sub">{sub}</div>' if sub else "") + "</div>")
 
-# ─────────────────────────────────────────────
-# SESSION STATE
-# ─────────────────────────────────────────────
+def kpi(val, label, sub=""):
+    s = (f'<div class="kpi-sub">{sub}</div>' if sub else "")
+    return (f'<div class="kpi-card">' +
+            f'<div class="kpi-label">{label}</div>' +
+            f'<div class="kpi-value">{val}</div>{s}</div>')
+
+# ── SESSION STATE ──
 if "ti"   not in st.session_state: st.session_state.ti = {k:list(v) for k,v in DEFAULTS.items()}
 if "p"    not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
 if "page" not in st.session_state: st.session_state.page = "Portfolio Overview"
 
-# ─────────────────────────────────────────────
+# ═════════════════════════════════════════════
 # SIDEBAR
-# ─────────────────────────────────────────────
+# ═════════════════════════════════════════════
 NAV = [
-    ("Portfolio Overview","📊"),("Technology Detail","🔬"),
-    ("Scenario Analysis","📈"),("Data Table","🗂️"),("MBM Price Controls","⚙️"),
+    ("Portfolio Overview",  "📊"),
+    ("Technology Detail",   "🔬"),
+    ("Scenario Analysis",   "📈"),
+    ("Data Table",          "🗂️"),
+    ("MBM Price Controls",  "⚙️"),
 ]
+
 with st.sidebar:
+    # Logo block
     st.markdown("""
-    <div style="padding:24px 20px 18px 20px;border-bottom:1px solid #f0f0f0">
-        <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:36px;height:36px;border-radius:10px;
-                background:linear-gradient(135deg,#059669,#34d399);
-                display:flex;align-items:center;justify-content:center;
-                font-size:16px;box-shadow:0 3px 8px rgba(5,150,105,0.3)">🌿</div>
+    <div style="padding:22px 18px 16px 18px;border-bottom:1px solid #f1f5f9;">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:38px;height:38px;border-radius:10px;flex-shrink:0;
+                        background:linear-gradient(135deg,#059669,#34d399);
+                        display:flex;align-items:center;justify-content:center;
+                        font-size:18px;box-shadow:0 3px 10px rgba(5,150,105,0.28);">🌿</div>
             <div>
-                <div style="font-size:0.9rem;font-weight:800;color:#065f46;letter-spacing:-0.01em">MBM Revenue</div>
-                <div style="font-size:0.65rem;color:#9ca3af;margin-top:1px">Model Dashboard</div>
+                <div style="font-size:0.88rem;font-weight:800;color:#064e3b;
+                            letter-spacing:-0.01em;line-height:1.1;">MBM Revenue</div>
+                <div style="font-size:0.65rem;color:#9ca3af;margin-top:2px;">Model Dashboard</div>
             </div>
         </div>
     </div>
-    <div style="padding:16px 20px 6px;font-size:0.6rem;color:#d1d5db;font-weight:700;text-transform:uppercase;letter-spacing:0.1em">
+    <div style="padding:14px 18px 5px;font-size:0.6rem;color:#cbd5e1;
+                font-weight:700;text-transform:uppercase;letter-spacing:0.12em;">
         Main Menu
     </div>
     """, unsafe_allow_html=True)
 
     for label, icon in NAV:
-        active = st.session_state.page == label
-        if st.sidebar.button(f"{icon}  {label}", key=f"nav_{label}", use_container_width=True):
-            st.session_state.page = label
+        active = (st.session_state.page == label)
+        # Inject inline style for active button via a container trick
+        if active:
+            st.markdown(f"""
+            <style>
+            [data-testid="stSidebar"] div[data-testid="stButton"]:has(button[kind="secondary"][title="{label}"]) button,
+            div[key="nav_{label}"] button {{
+                background: linear-gradient(90deg,#059669,#10b981) !important;
+                color: #ffffff !important;
+                font-weight: 700 !important;
+            }}
+            </style>""", unsafe_allow_html=True)
+            # Use a unique container per button
+            active_container = st.container()
+            with active_container:
+                if st.button(f"{icon}  {label}", key=f"nav_{label}",
+                             use_container_width=True,
+                             help=label):
+                    st.session_state.page = label
+                    st.rerun()
+            # Apply active style after rendering
+            st.markdown(f"""
+            <script>
+            var btns = window.parent.document.querySelectorAll('button');
+            btns.forEach(b => {{
+                if(b.innerText.trim().startsWith('{icon}')) {{
+                    b.style.background = 'linear-gradient(90deg,#059669,#10b981)';
+                    b.style.color = '#fff';
+                    b.style.fontWeight = '700';
+                }}
+            }});
+            </script>""", unsafe_allow_html=True)
+        else:
+            if st.button(f"{icon}  {label}", key=f"nav_{label}",
+                         use_container_width=True):
+                st.session_state.page = label
+                st.rerun()
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown('<hr style="margin:0 0 10px 0;">', unsafe_allow_html=True)
+
+    # Reset button with orange/red tint
+    with st.container():
+        st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+        if st.button("↺  Reset Defaults", use_container_width=True, key="rst"):
+            st.session_state.p  = dict(DEFAULT_PRICES)
+            st.session_state.ti = {k:list(v) for k,v in DEFAULTS.items()}
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    if st.button("↺  Reset Defaults", use_container_width=True, key="rst"):
-        st.session_state.p  = dict(DEFAULT_PRICES)
-        st.session_state.ti = {k:list(v) for k,v in DEFAULTS.items()}
-        st.rerun()
-
-# ─────────────────────────────────────────────
-# PRE-COMPUTE
-# ─────────────────────────────────────────────
-AR  = [compute(st.session_state.p,i,st.session_state.ti) for i in range(14)]
-TR  = sum(r["tr"] for r in AR); TM = sum(r["mb"] for r in AR)
-TD  = sum(r["dr"] for r in AR); TC = sum(r["tc"] for r in AR)
-TN  = sum(r["nc"] for r in AR); TCO= sum(r["co2"] for r in AR)
+# ── PRE-COMPUTE ──
+AR  = [compute(st.session_state.p, i, st.session_state.ti) for i in range(14)]
+TR  = sum(r["tr"] for r in AR);  TM = sum(r["mb"] for r in AR)
+TD  = sum(r["dr"] for r in AR);  TC = sum(r["tc"] for r in AR)
+TN  = sum(r["nc"] for r in AR);  TCO= sum(r["co2"] for r in AR)
 page = st.session_state.page
 
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 # PAGE 1 — PORTFOLIO OVERVIEW
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 if page == "Portfolio Overview":
-    st.markdown('''<div class="page-header">
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Carbon Market Intelligence</div>
         <div class="page-header-title">📊 Portfolio Overview</div>
         <div class="page-header-sub">Annual revenue performance across all 14 clean technology verticals</div>
     </div>''', unsafe_allow_html=True)
 
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.markdown(card(fm(TR),"Total Annual Revenue","Portfolio-wide"),         unsafe_allow_html=True)
-    c2.markdown(card(fm(TM),"MBM Revenue",          f"{TM/TR*100:.1f}% of total"), unsafe_allow_html=True)
-    c3.markdown(card(fm(TD),"Direct Revenue",        f"{TD/TR*100:.1f}% of total"), unsafe_allow_html=True)
-    c4.markdown(card(fm(TN),"Net Cash Flow",         f"R/C {TR/TC:.2f}×"),          unsafe_allow_html=True)
-    c5.markdown(card(f"{TCO/1e6:.2f}M tCO₂e","CO₂ Abated","per year"),       unsafe_allow_html=True)
+    c1.markdown(kpi(fm(TR), "Total Annual Revenue", "Portfolio-wide"),         unsafe_allow_html=True)
+    c2.markdown(kpi(fm(TM), "MBM Revenue",          f"{TM/TR*100:.1f}% of total"), unsafe_allow_html=True)
+    c3.markdown(kpi(fm(TD), "Direct Revenue",        f"{TD/TR*100:.1f}% of total"), unsafe_allow_html=True)
+    c4.markdown(kpi(fm(TN), "Net Cash Flow",         f"R/C {TR/TC:.2f}×"),          unsafe_allow_html=True)
+    c5.markdown(kpi(f"{TCO/1e6:.2f}M tCO₂e", "CO₂ Abated", "per year"),       unsafe_allow_html=True)
 
     st.markdown('<div class="sec-head">Revenue by Technology</div>', unsafe_allow_html=True)
-    cl,cr = st.columns([3,2])
-    with cl:
+    col_l, col_r = st.columns([3, 2])
+
+    with col_l:
         srt = sorted(range(14), key=lambda i: AR[i]["tr"], reverse=True)
         fig = go.Figure()
         fig.add_trace(go.Bar(name="MBM Revenue",
-            x=[TECH_SHORT[i] for i in srt], y=[AR[i]["mb"]/1e6 for i in srt],
+            x=[TECH_SHORT[i] for i in srt],
+            y=[AR[i]["mb"]/1e6 for i in srt],
             marker_color="#059669"))
         fig.add_trace(go.Bar(name="Direct Revenue",
-            x=[TECH_SHORT[i] for i in srt], y=[AR[i]["dr"]/1e6 for i in srt],
+            x=[TECH_SHORT[i] for i in srt],
+            y=[AR[i]["dr"]/1e6 for i in srt],
             marker_color="#34d399"))
         fig.add_trace(go.Bar(name="Cost",
-            x=[TECH_SHORT[i] for i in srt], y=[-AR[i]["tc"]/1e6 for i in srt],
-            marker_color="#d1fae5"))
-        fig.update_layout(**pl(380))
+            x=[TECH_SHORT[i] for i in srt],
+            y=[-AR[i]["tc"]/1e6 for i in srt],
+            marker_color="#dcfce7"))
+        fig.update_layout(**pl(400))
         fig.update_layout(barmode="relative",
-            xaxis=dict(tickangle=-35,gridcolor=GC,linecolor="#e8edf2"),
+            xaxis=dict(tickangle=-38),
             yaxis_title="USD Million")
-        st.markdown('<div class="chart-wrap">', unsafe_allow_html=True)
         st.plotly_chart(fig, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    with cr:
-        agg={}
+    with col_r:
+        agg = {}
         for r in AR:
-            for k,v in r["bd"].items(): agg[k]=agg.get(k,0)+v
-        mf={k:v for k,v in agg.items() if v>0}
-        fig2=go.Figure(go.Pie(
+            for k, v in r["bd"].items(): agg[k] = agg.get(k, 0) + v
+        mf = {k: v for k, v in agg.items() if v > 0}
+        fig2 = go.Figure(go.Pie(
             labels=list(mf.keys()), values=list(mf.values()),
             hole=0.52, textinfo="label+percent",
             marker=dict(colors=GREENS[:len(mf)]),
-            textfont=dict(size=9,color="#374151"),
+            textfont=dict(size=8.5, color=FC),
         ))
-        fig2.update_layout(**pl(380))
+        fig2.update_layout(**pl(400, ml=10, mr=10, mt=30, mb=30))
         fig2.update_layout(showlegend=False,
-            title=dict(text="MBM Revenue Mix",font=dict(size=11,color="#374151"),y=0.97))
-        st.markdown('<div class="chart-wrap">', unsafe_allow_html=True)
+            title=dict(text="MBM Revenue Mix", font=dict(size=11, color=FC), y=0.98))
         st.plotly_chart(fig2, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="sec-head">Net Annual Cash Flow</div>', unsafe_allow_html=True)
-    nv=[AR[i]["nc"]/1e6 for i in range(14)]
-    fig3=go.Figure(go.Bar(x=TECH_SHORT,y=nv,
-        marker_color=["#059669" if v>=0 else "#d1fae5" for v in nv],
+    nv = [AR[i]["nc"]/1e6 for i in range(14)]
+    fig3 = go.Figure(go.Bar(x=TECH_SHORT, y=nv,
+        marker_color=["#059669" if v >= 0 else "#fca5a5" for v in nv],
         text=[f"${v:.1f}M" for v in nv],
-        textposition="outside",textfont=dict(size=9,color="#374151")))
-    fig3.update_layout(**pl(280))
-    fig3.update_layout(xaxis=dict(tickangle=-35),yaxis_title="USD Million")
-    st.markdown('<div class="chart-wrap">', unsafe_allow_html=True)
+        textposition="outside",
+        textfont=dict(size=9, color=FC)))
+    fig3.update_layout(**pl(290, mb=60))
+    fig3.update_layout(xaxis=dict(tickangle=-38), yaxis_title="USD Million")
     st.plotly_chart(fig3, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="sec-head">Technology Revenue Ranking</div>', unsafe_allow_html=True)
-    srt2=sorted(range(14),key=lambda i:AR[i]["tr"],reverse=True)
-    mx=AR[srt2[0]]["tr"]
-    r1,r2=st.columns(2)
-    for rank,i in enumerate(srt2):
-        col=r1 if rank%2==0 else r2
-        pct=AR[i]["tr"]/mx*100
+    st.markdown('<div class="sec-head">Technology Ranking</div>', unsafe_allow_html=True)
+    srt2 = sorted(range(14), key=lambda i: AR[i]["tr"], reverse=True)
+    mx = AR[srt2[0]]["tr"]
+    r1, r2 = st.columns(2)
+    for rank, i in enumerate(srt2):
+        col = r1 if rank % 2 == 0 else r2
+        pct = AR[i]["tr"] / mx * 100
         col.markdown(f'''<div class="prog-wrap">
             <div class="prog-row"><span>{TECH_SHORT[i]}</span><b>{fm(AR[i]["tr"])}</b></div>
             <div class="prog-bg"><div class="prog-fill" style="width:{pct:.1f}%"></div></div>
         </div>''', unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 # PAGE 2 — TECHNOLOGY DETAIL
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 elif page == "Technology Detail":
-    st.markdown('''<div class="page-header">
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Technology Analysis</div>
         <div class="page-header-title">🔬 Technology Detail</div>
         <div class="page-header-sub">Configure individual technology parameters and view granular revenue breakdown</div>
     </div>''', unsafe_allow_html=True)
 
-    sel=st.selectbox("Select Technology",TECHNOLOGIES,index=0)
-    t=TECHNOLOGIES.index(sel); ti=st.session_state.ti
+    ti = st.session_state.ti
+    sel = st.selectbox("Select Technology", TECHNOLOGIES, index=0)
+    t = TECHNOLOGIES.index(sel)
 
     st.markdown('<div class="sec-head">Technology Inputs</div>', unsafe_allow_html=True)
-    c1,c2,c3=st.columns(3)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("**Scale & Output**")
-        ti["annual_output"][t]      =st.number_input("Annual Output (MWh/yr)",0,10_000_000,int(ti["annual_output"][t]),10000,key=f"ao{t}")
-        ti["installed_capacity"][t] =st.number_input("Installed Capacity (MW)",0,5000,int(ti["installed_capacity"][t]),10,key=f"ic{t}")
-        ti["capacity_factor"][t]    =st.slider("Capacity Factor",0.0,1.0,ti["capacity_factor"][t],0.01,key=f"cf{t}")
-        ti["project_lifetime"][t]   =st.slider("Project Lifetime (yrs)",5,50,int(ti["project_lifetime"][t]),1,key=f"pl{t}")
+        ti["annual_output"][t]      = st.number_input("Annual Output (MWh/yr)", 0, 10_000_000, int(ti["annual_output"][t]),      10000, key=f"ao{t}")
+        ti["installed_capacity"][t] = st.number_input("Installed Capacity (MW)", 0, 5000,      int(ti["installed_capacity"][t]), 10,    key=f"ic{t}")
+        ti["capacity_factor"][t]    = st.slider("Capacity Factor",     0.0, 1.0, ti["capacity_factor"][t],  0.01, key=f"cf{t}")
+        ti["project_lifetime"][t]   = st.slider("Project Lifetime (yr)", 5, 50,  int(ti["project_lifetime"][t]), 1, key=f"pl{t}")
     with c2:
         st.markdown("**Cost Structure**")
-        ti["capex_per_kw"][t]  =st.number_input("CAPEX/kW (USD/kW)",0,20000,int(ti["capex_per_kw"][t]),100,key=f"ck{t}")
-        ti["opex_pct"][t]      =st.slider("OPEX (% CAPEX p.a.)",0.0,0.20,ti["opex_pct"][t],0.005,format="%.3f",key=f"op{t}")
-        ti["feedstock_cost"][t]=st.number_input("Feedstock Cost (USD/yr)",0,50_000_000,int(ti["feedstock_cost"][t]),100000,key=f"fc{t}")
-        ti["other_opex"][t]    =st.number_input("Other OPEX (USD/yr)",0,20_000_000,int(ti["other_opex"][t]),100000,key=f"ov{t}")
-        ti["wacc"][t]          =st.slider("WACC",0.01,0.25,ti["wacc"][t],0.005,format="%.3f",key=f"wc{t}")
+        ti["capex_per_kw"][t]   = st.number_input("CAPEX/kW (USD/kW)", 0, 20000,     int(ti["capex_per_kw"][t]),   100,    key=f"ck{t}")
+        ti["opex_pct"][t]       = st.slider("OPEX (% CAPEX p.a.)", 0.0, 0.20, ti["opex_pct"][t],      0.005, format="%.3f", key=f"op{t}")
+        ti["feedstock_cost"][t] = st.number_input("Feedstock (USD/yr)", 0, 50_000_000, int(ti["feedstock_cost"][t]), 100000, key=f"fc{t}")
+        ti["other_opex"][t]     = st.number_input("Other OPEX (USD/yr)", 0, 20_000_000, int(ti["other_opex"][t]),    100000, key=f"ov{t}")
+        ti["wacc"][t]           = st.slider("WACC", 0.01, 0.25, ti["wacc"][t], 0.005, format="%.3f", key=f"wc{t}")
     with c3:
         st.markdown("**Revenue Drivers**")
-        ti["market_price"][t]     =st.number_input("Market Price (USD/unit)",0,100000,int(ti["market_price"][t]),10,key=f"mp{t}")
-        ti["co2_abated_factor"][t]=st.slider("CO₂ Abated/Unit",0.0,2.0,ti["co2_abated_factor"][t],0.01,key=f"ca{t}")
-        if t in [12,13]: ti["clients"][t]=st.number_input("Clients",0,10000,int(ti["clients"][t]),1,key=f"cl{t}")
+        ti["market_price"][t]      = st.number_input("Market Price (USD/unit)", 0, 100000, int(ti["market_price"][t]),     10, key=f"mp{t}")
+        ti["co2_abated_factor"][t] = st.slider("CO₂ Abated / Unit", 0.0, 2.0, ti["co2_abated_factor"][t], 0.01, key=f"ca{t}")
+        if t in [12, 13]:
+            ti["clients"][t] = st.number_input("Clients", 0, 10000, int(ti["clients"][t]), 1, key=f"cl{t}")
 
-    r=compute(st.session_state.p,t,ti)
+    r = compute(st.session_state.p, t, ti)
     st.markdown('<div class="sec-head">Results</div>', unsafe_allow_html=True)
-    m1,m2,m3,m4,m5=st.columns(5)
-    m1.markdown(card(fm(r["tr"]),"Total Revenue"),unsafe_allow_html=True)
-    m2.markdown(card(fm(r["mb"]),"MBM Revenue"),unsafe_allow_html=True)
-    m3.markdown(card(fm(r["dr"]),"Direct Revenue"),unsafe_allow_html=True)
-    m4.markdown(card(fm(r["tc"]),"Total Cost"),unsafe_allow_html=True)
-    m5.markdown(card(fm(r["nc"]),"Net Cash Flow",f"R/C {r['rc']:.2f}×"),unsafe_allow_html=True)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.markdown(kpi(fm(r["tr"]), "Total Revenue"),                     unsafe_allow_html=True)
+    m2.markdown(kpi(fm(r["mb"]), "MBM Revenue"),                       unsafe_allow_html=True)
+    m3.markdown(kpi(fm(r["dr"]), "Direct Revenue"),                    unsafe_allow_html=True)
+    m4.markdown(kpi(fm(r["tc"]), "Total Cost"),                        unsafe_allow_html=True)
+    m5.markdown(kpi(fm(r["nc"]), "Net Cash Flow", f"R/C {r['rc']:.2f}×"), unsafe_allow_html=True)
 
-    st.markdown("")
-    ca,cb=st.columns(2)
+    ca, cb = st.columns(2)
     with ca:
-        st.markdown('<div class="sec-head">MBM Revenue Breakdown</div>', unsafe_allow_html=True)
-        bd={k:v for k,v in r["bd"].items() if v>0}
+        st.markdown('<div class="sec-head">MBM Breakdown</div>', unsafe_allow_html=True)
+        bd = {k: v for k, v in r["bd"].items() if v > 0}
         if bd:
-            sb=sorted(bd.items(),key=lambda x:x[1],reverse=True)
-            fig_b=go.Figure(go.Bar(
-                x=[x[0] for x in sb],y=[x[1]/1e6 for x in sb],
+            sb = sorted(bd.items(), key=lambda x: x[1], reverse=True)
+            fb = go.Figure(go.Bar(
+                x=[x[0] for x in sb], y=[x[1]/1e6 for x in sb],
                 marker=dict(color=list(range(len(sb))),
                     colorscale=[[0,"#a7f3d0"],[0.5,"#059669"],[1,"#064e3b"]]),
                 text=[f"${x[1]/1e6:.2f}M" for x in sb],
-                textposition="outside",textfont=dict(size=9,color="#374151")))
-            fig_b.update_layout(**pl(300))
-            fig_b.update_yaxes(title_text="USD Million")
-            st.plotly_chart(fig_b,use_container_width=True)
+                textposition="outside", textfont=dict(size=9, color=FC)))
+            fb.update_layout(**pl(310))
+            fb.update_yaxes(title_text="USD Million")
+            st.plotly_chart(fb, use_container_width=True)
         else:
-            st.info("No active MBM mechanisms.")
+            st.info("No active MBM mechanisms for this technology.")
+
     with cb:
         st.markdown('<div class="sec-head">Cost vs Revenue</div>', unsafe_allow_html=True)
-        cats=["Direct Rev","MBM Rev","CAPEX ann.","Fixed OPEX","Feedstock","Other OPEX"]
-        vals=[r["dr"]/1e6,r["mb"]/1e6,-r["ac"]/1e6,-r["fo"]/1e6,
-              -ti["feedstock_cost"][t]/1e6,-ti["other_opex"][t]/1e6]
-        fig_w=go.Figure(go.Bar(x=cats,y=vals,
-            marker_color=["#059669" if v>=0 else "#d1fae5" for v in vals],
+        cats = ["Direct Rev","MBM Rev","CAPEX ann.","Fixed OPEX","Feedstock","Other OPEX"]
+        vals = [r["dr"]/1e6, r["mb"]/1e6, -r["ac"]/1e6, -r["fo"]/1e6,
+                -ti["feedstock_cost"][t]/1e6, -ti["other_opex"][t]/1e6]
+        fw = go.Figure(go.Bar(x=cats, y=vals,
+            marker_color=["#059669" if v >= 0 else "#fca5a5" for v in vals],
             text=[f"${abs(v):.2f}M" for v in vals],
-            textposition="outside",textfont=dict(size=9,color="#374151")))
-        fig_w.add_hline(y=0,line_color="#e8edf2",line_width=1.5)
-        fig_w.update_layout(**pl(300))
-        fig_w.update_layout(xaxis=dict(tickangle=-30))
-        fig_w.update_yaxes(title_text="USD Million")
-        st.plotly_chart(fig_w,use_container_width=True)
+            textposition="outside", textfont=dict(size=9, color=FC)))
+        fw.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
+        fw.update_layout(**pl(310))
+        fw.update_layout(xaxis=dict(tickangle=-30))
+        fw.update_yaxes(title_text="USD Million")
+        st.plotly_chart(fw, use_container_width=True)
 
     st.markdown('<div class="sec-head">Active MBM Mechanisms</div>', unsafe_allow_html=True)
-    mechs=["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
-    html=""
+    mechs = ["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
+    html = ""
     for m in mechs:
-        on=DEFAULTS[m][t]; lbl=MBM_LABELS[m][0]
-        html+=f'<span class="chip {"chip-on" if on else "chip-off"}">{"✓" if on else "✕"} {lbl}</span>'
-    st.markdown(html,unsafe_allow_html=True)
+        on = DEFAULTS[m][t]; lbl = MBM_LABELS[m][0]
+        html += f'<span class="chip {"chip-on" if on else "chip-off"}">{"✓" if on else "✕"} {lbl}</span>'
+    st.markdown(html, unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 # PAGE 3 — SCENARIO ANALYSIS
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 elif page == "Scenario Analysis":
-    st.markdown('''<div class="page-header">
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">What-If Analysis</div>
         <div class="page-header-title">📈 Scenario Analysis</div>
         <div class="page-header-sub">Stress-test portfolio revenue under varying carbon price assumptions</div>
     </div>''', unsafe_allow_html=True)
 
-    bp=dict(st.session_state.p)
-    er=list(range(10,310,10)); tvs,mvs,nvs=[],[],[]
+    bp = dict(st.session_state.p)
+    er = list(range(10, 310, 10))
+    tvs, mvs, nvs = [], [], []
     for ep in er:
-        tp={**bp,"ets":ep}; res=[compute(tp,i,st.session_state.ti) for i in range(14)]
+        tp = {**bp, "ets": ep}
+        res = [compute(tp, i, st.session_state.ti) for i in range(14)]
         tvs.append(sum(r["tr"] for r in res)/1e6)
         mvs.append(sum(r["mb"] for r in res)/1e6)
         nvs.append(sum(r["nc"] for r in res)/1e6)
 
     st.markdown('<div class="sec-head">ETS Carbon Price Sensitivity</div>', unsafe_allow_html=True)
-    fs=make_subplots(rows=1,cols=2,subplot_titles=("Total Revenue & Net CF","MBM Revenue"))
-    fs.add_trace(go.Scatter(x=er,y=tvs,name="Total Revenue",line=dict(color="#059669",width=2.5)),row=1,col=1)
-    fs.add_trace(go.Scatter(x=er,y=nvs,name="Net Cash Flow",line=dict(color="#34d399",width=2,dash="dot")),row=1,col=1)
-    fs.add_trace(go.Scatter(x=er,y=mvs,name="MBM Revenue",
-        fill="tozeroy",fillcolor="rgba(5,150,105,0.08)",
-        line=dict(color="#059669",width=2)),row=1,col=2)
-    for ci in [1,2]:
-        fs.add_vline(x=bp["ets"],line_color="#d1fae5",line_dash="dash",row=1,col=ci)
-    fs.update_layout(paper_bgcolor=PBG,plot_bgcolor=PBG,
-        font=dict(family="Inter",color=FC,size=10),height=360,
-        margin=dict(l=20,r=20,t=36,b=20),
-        legend=dict(orientation="h",y=-0.15,font=dict(size=9)))
+    fs = make_subplots(rows=1, cols=2, subplot_titles=("Total Revenue & Net CF", "MBM Revenue"))
+    fs.add_trace(go.Scatter(x=er, y=tvs, name="Total Revenue",  line=dict(color="#059669",  width=2.5)), row=1, col=1)
+    fs.add_trace(go.Scatter(x=er, y=nvs, name="Net Cash Flow",  line=dict(color="#34d399",  width=2, dash="dot")), row=1, col=1)
+    fs.add_trace(go.Scatter(x=er, y=mvs, name="MBM Revenue",
+        fill="tozeroy", fillcolor="rgba(5,150,105,0.08)",
+        line=dict(color="#059669", width=2)), row=1, col=2)
+    for ci in [1, 2]:
+        fs.add_vline(x=bp["ets"], line_color="#d1fae5", line_dash="dash", row=1, col=ci)
+    fs.update_layout(
+        paper_bgcolor=PBG, plot_bgcolor=PBG,
+        font=dict(family="Inter", color=FC, size=10),
+        height=380, margin=dict(l=20, r=20, t=38, b=20),
+        legend=dict(orientation="h", y=-0.15, font=dict(size=9)))
     for ax in ["xaxis","xaxis2"]:
-        fs.update_layout(**{ax:dict(gridcolor=GC,title_text="ETS Price (USD/tCO₂e)",title_font=dict(size=9))})
+        fs.update_layout(**{ax: dict(gridcolor=GC, title_text="ETS Price (USD/tCO₂e)",
+                                     title_font=dict(size=9), tickfont=dict(size=9))})
     for ax in ["yaxis","yaxis2"]:
-        fs.update_layout(**{ax:dict(gridcolor=GC,title_text="USD Million",title_font=dict(size=9))})
-    st.plotly_chart(fs,use_container_width=True)
+        fs.update_layout(**{ax: dict(gridcolor=GC, title_text="USD Million",
+                                     title_font=dict(size=9), tickfont=dict(size=9))})
+    st.plotly_chart(fs, use_container_width=True)
 
     st.markdown('<div class="sec-head">Multi-Scenario Comparison</div>', unsafe_allow_html=True)
-    sc1,sc2=st.columns(2)
+    sc1, sc2 = st.columns(2)
     with sc1:
-        el=st.slider("ETS Low",10,200,50,10); eb=st.slider("ETS Base",10,300,bp["ets"],10); eh=st.slider("ETS High",50,500,200,10)
+        el = st.slider("ETS Low",   10, 200, 50,        10)
+        eb = st.slider("ETS Base",  10, 300, bp["ets"],  10)
+        eh = st.slider("ETS High",  50, 500, 200,        10)
     with sc2:
-        vl=st.slider("VCM Low",5,100,30,5); vb=st.slider("VCM Base",5,300,bp["vcm"],5); vh=st.slider("VCM High",50,500,200,5)
+        vl = st.slider("VCM Low",   5, 100, 30,          5)
+        vb = st.slider("VCM Base",  5, 300, bp["vcm"],   5)
+        vh = st.slider("VCM High",  50, 500, 200,         5)
 
-    scens={"Low":{**bp,"ets":el,"vcm":vl},"Base":{**bp,"ets":eb,"vcm":vb},"High":{**bp,"ets":eh,"vcm":vh}}
-    sr={}
-    for sn,sp in scens.items():
-        res=[compute(sp,i,st.session_state.ti) for i in range(14)]
-        sr[sn]={"tr":sum(r["tr"] for r in res),"mb":sum(r["mb"] for r in res),"nc":sum(r["nc"] for r in res)}
+    scens = {"Low":  {**bp,"ets":el,"vcm":vl},
+             "Base": {**bp,"ets":eb,"vcm":vb},
+             "High": {**bp,"ets":eh,"vcm":vh}}
+    sr = {}
+    for sn, sp in scens.items():
+        res = [compute(sp, i, st.session_state.ti) for i in range(14)]
+        sr[sn] = {"tr": sum(r["tr"] for r in res),
+                  "mb": sum(r["mb"] for r in res),
+                  "nc": sum(r["nc"] for r in res)}
 
-    km1,km2,km3=st.columns(3)
-    for col,sn in zip([km1,km2,km3],sr):
-        col.markdown(card(fm(sr[sn]["tr"]),f"{sn} Scenario",
-            f"MBM {fm(sr[sn]['mb'])}  ·  Net CF {fm(sr[sn]['nc'])}"),unsafe_allow_html=True)
+    km1, km2, km3 = st.columns(3)
+    for col, sn in zip([km1, km2, km3], sr):
+        col.markdown(kpi(fm(sr[sn]["tr"]), f"{sn} Scenario",
+                         f"MBM {fm(sr[sn]['mb'])}  ·  Net CF {fm(sr[sn]['nc'])}"),
+                     unsafe_allow_html=True)
 
-    st.markdown("")
-    fsc=go.Figure()
-    for m,lbl,clr in [("tr","Total Revenue","#059669"),("mb","MBM Revenue","#064e3b"),("nc","Net Cash Flow","#34d399")]:
-        fsc.add_trace(go.Bar(name=lbl,x=list(sr.keys()),
-            y=[sr[s][m]/1e6 for s in sr],marker_color=clr))
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    fsc = go.Figure()
+    colors = {"Total Revenue":"#059669","MBM Revenue":"#064e3b","Net Cash Flow":"#34d399"}
+    for m, lbl in [("tr","Total Revenue"),("mb","MBM Revenue"),("nc","Net Cash Flow")]:
+        fsc.add_trace(go.Bar(name=lbl, x=list(sr.keys()),
+                             y=[sr[s][m]/1e6 for s in sr],
+                             marker_color=colors[lbl]))
     fsc.update_layout(**pl(320))
     fsc.update_layout(barmode="group")
     fsc.update_yaxes(title_text="USD Million")
-    st.plotly_chart(fsc,use_container_width=True)
+    st.plotly_chart(fsc, use_container_width=True)
 
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 # PAGE 4 — DATA TABLE
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 elif page == "Data Table":
-    st.markdown('''<div class="page-header">
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Full Dataset</div>
         <div class="page-header-title">🗂️ Data Table</div>
-        <div class="page-header-sub">Full revenue summary and MBM breakdown across all technologies</div>
+        <div class="page-header-sub">Complete revenue summary and MBM breakdown across all technologies</div>
     </div>''', unsafe_allow_html=True)
 
-    t1,t2,t3=st.tabs(["Revenue Summary","MBM Breakdown","Applicability Heatmap"])
+    t1, t2, t3 = st.tabs(["  Revenue Summary  ", "  MBM Breakdown  ", "  Applicability Heatmap  "])
+
     with t1:
-        rows=[]
-        for i,r in enumerate(AR):
-            rows.append({"Technology":TECHNOLOGIES[i],
-                "Direct Rev ($M)":round(r["dr"]/1e6,2),"MBM Rev ($M)":round(r["mb"]/1e6,2),
-                "Total Rev ($M)":round(r["tr"]/1e6,2),"Total Cost ($M)":round(r["tc"]/1e6,2),
-                "Net CF ($M)":round(r["nc"]/1e6,2),"R/C Ratio":round(r["rc"],2),
-                "CO₂ Abated (Mt)":round(r["co2"]/1e6,3),"Lifetime Rev ($M)":round(r["lr"]/1e6,1)})
-        df=pd.DataFrame(rows)
-        st.dataframe(df.style.background_gradient(subset=["Total Rev ($M)","Net CF ($M)"],cmap="Greens"),
-                     use_container_width=True,height=500)
-        st.download_button("⬇ Download CSV",df.to_csv(index=False).encode(),"revenue.csv","text/csv")
+        rows = []
+        for i, r in enumerate(AR):
+            rows.append({"Technology": TECHNOLOGIES[i],
+                "Direct Rev ($M)":   round(r["dr"]/1e6, 2),
+                "MBM Rev ($M)":      round(r["mb"]/1e6, 2),
+                "Total Rev ($M)":    round(r["tr"]/1e6, 2),
+                "Total Cost ($M)":   round(r["tc"]/1e6, 2),
+                "Net CF ($M)":       round(r["nc"]/1e6, 2),
+                "R/C Ratio":         round(r["rc"], 2),
+                "CO₂ Abated (Mt)":   round(r["co2"]/1e6, 3),
+                "Lifetime Rev ($M)": round(r["lr"]/1e6, 1),
+            })
+        df = pd.DataFrame(rows)
+        st.dataframe(df.style.background_gradient(
+            subset=["Total Rev ($M)", "Net CF ($M)"], cmap="Greens"),
+            use_container_width=True, height=500)
+        st.download_button("⬇ Download CSV", df.to_csv(index=False).encode(),
+                           "revenue_summary.csv", "text/csv")
+
     with t2:
-        mbrows=[]
-        for i,r in enumerate(AR):
-            row={"Technology":TECH_SHORT[i]}
-            for k,v in r["bd"].items(): row[f"{k} ($M)"]=round(v/1e6,2)
-            row["Total MBM ($M)"]=round(r["mb"]/1e6,2)
+        mbrows = []
+        for i, r in enumerate(AR):
+            row = {"Technology": TECH_SHORT[i]}
+            for k, v in r["bd"].items(): row[f"{k} ($M)"] = round(v/1e6, 2)
+            row["Total MBM ($M)"] = round(r["mb"]/1e6, 2)
             mbrows.append(row)
-        dfm=pd.DataFrame(mbrows)
-        st.dataframe(dfm.style.background_gradient(subset=["Total MBM ($M)"],cmap="Greens"),
-                     use_container_width=True,height=500)
-        st.download_button("⬇ Download CSV",dfm.to_csv(index=False).encode(),"mbm.csv","text/csv")
+        dfm = pd.DataFrame(mbrows)
+        st.dataframe(dfm.style.background_gradient(
+            subset=["Total MBM ($M)"], cmap="Greens"),
+            use_container_width=True, height=500)
+        st.download_button("⬇ Download CSV", dfm.to_csv(index=False).encode(),
+                           "mbm_breakdown.csv", "text/csv")
+
     with t3:
-        mechs=["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
-        mlbl=[MBM_LABELS[m][0] for m in mechs]
-        z=[[DEFAULTS[m][i] for m in mechs] for i in range(14)]
-        fig_hm=go.Figure(go.Heatmap(
-            z=z,x=mlbl,y=TECH_SHORT,
+        mechs = ["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
+        mlbl  = [MBM_LABELS[m][0] for m in mechs]
+        z     = [[DEFAULTS[m][i] for m in mechs] for i in range(14)]
+        fhm   = go.Figure(go.Heatmap(
+            z=z, x=mlbl, y=TECH_SHORT,
             colorscale=[[0,"#f9fafb"],[0.01,"#d1fae5"],[1,"#059669"]],
             showscale=True,
-            colorbar=dict(title="Active",tickvals=[0,1],ticktext=["No","Yes"],
-                tickfont=dict(size=9),titlefont=dict(size=9),bgcolor="rgba(0,0,0,0)"),
+            colorbar=dict(title="Active", tickvals=[0,1], ticktext=["No","Yes"],
+                tickfont=dict(size=9), titlefont=dict(size=9),
+                bgcolor="rgba(0,0,0,0)"),
             hovertemplate="<b>%{y}</b> × <b>%{x}</b><br>Active: %{z}<extra></extra>",
         ))
         for i in range(14):
-            for j,m in enumerate(mechs):
+            for j, m in enumerate(mechs):
                 if z[i][j]:
-                    fig_hm.add_annotation(x=mlbl[j],y=TECH_SHORT[i],text="✓",
-                        showarrow=False,font=dict(size=12,color="#065f46"))
-        fig_hm.update_layout(**pl(520,ml=90,mr=40,mt=20,mb=100))
-        fig_hm.update_layout(xaxis=dict(tickangle=-40,side="bottom"))
-        st.markdown('<div class="chart-title">Technology × MBM Mechanism Applicability</div>', unsafe_allow_html=True)
-        st.markdown('<div class="chart-sub">Which market-based mechanisms apply to each technology</div>', unsafe_allow_html=True)
-        st.plotly_chart(fig_hm,use_container_width=True)
+                    fhm.add_annotation(x=mlbl[j], y=TECH_SHORT[i], text="✓",
+                        showarrow=False, font=dict(size=11, color="#065f46"))
+        fhm.update_layout(**pl(520, ml=100, mr=40, mt=20, mb=110))
+        fhm.update_layout(xaxis=dict(tickangle=-42, side="bottom"))
+        st.plotly_chart(fhm, use_container_width=True)
 
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 # PAGE 5 — MBM PRICE CONTROLS
-# ═══════════════════════════════════════════════
+# ═════════════════════════════════════════════
 elif page == "MBM Price Controls":
-    st.markdown('''<div class="page-header">
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Global Parameters</div>
         <div class="page-header-title">⚙️ MBM Price Controls</div>
-        <div class="page-header-sub">Adjust all market-based mechanism parameters — changes apply instantly across all pages</div>
+        <div class="page-header-sub">Adjust all market-based mechanism parameters — changes propagate instantly to all pages</div>
     </div>''', unsafe_allow_html=True)
 
-    p=st.session_state.p
+    p = st.session_state.p
 
     st.markdown('<div class="sec-head">Carbon Pricing</div>', unsafe_allow_html=True)
-    pc1,pc2,pc3=st.columns(3)
+    pc1, pc2, pc3 = st.columns(3)
     with pc1:
-        p["ets"]    =st.slider("ETS / Carbon Market (USD/tCO₂e)",10,300,p["ets"],5,key="mb_ets")
-        p["ctax"]   =st.slider("Carbon Tax (USD/tCO₂e)",0,200,p["ctax"],5,key="mb_ctax")
-        p["corsia"] =st.slider("CORSIA Credit (USD/tCO₂e)",3,100,int(p["corsia"]),1,key="mb_corsia")
+        p["ets"]     = st.slider("ETS / Carbon Market (USD/tCO₂e)",  10,  300, p["ets"],      5, key="mb_ets")
+        p["ctax"]    = st.slider("Carbon Tax (USD/tCO₂e)",            0,  200, p["ctax"],      5, key="mb_ctax")
+        p["corsia"]  = st.slider("CORSIA Credit (USD/tCO₂e)",         3,  100, int(p["corsia"]),1, key="mb_corsia")
     with pc2:
-        p["vcm"]    =st.slider("VCM / CDM Credit (USD/tCO₂e)",5,300,p["vcm"],5,key="mb_vcm")
-        p["cbam"]   =st.slider("CBAM Import Cost (USD/tCO₂e)",10,150,p["cbam"],5,key="mb_cbam")
-        p["imo"]    =st.slider("IMO Levy (USD/tCO₂e)",50,800,p["imo"],10,key="mb_imo")
+        p["vcm"]     = st.slider("VCM / CDM Credit (USD/tCO₂e)",      5,  300, p["vcm"],       5, key="mb_vcm")
+        p["cbam"]    = st.slider("CBAM Import Cost (USD/tCO₂e)",      10,  150, p["cbam"],      5, key="mb_cbam")
+        p["imo"]     = st.slider("IMO Levy (USD/tCO₂e)",              50,  800, p["imo"],      10, key="mb_imo")
     with pc3:
-        p["feebate"]=st.slider("Feebate Rate (USD/tCO₂e)",0,150,p["feebate"],5,key="mb_feebate")
-        p["amc"]    =st.slider("AMC Price (USD/unit)",50,300,p["amc"],10,key="mb_amc")
+        p["feebate"] = st.slider("Feebate Rate (USD/tCO₂e)",           0,  150, p["feebate"],   5, key="mb_feebate")
+        p["amc"]     = st.slider("AMC Price (USD/unit)",               50,  300, p["amc"],      10, key="mb_amc")
 
     st.markdown('<div class="sec-head">Energy & Policy Prices</div>', unsafe_allow_html=True)
-    pe1,pe2,_=st.columns(3)
+    pe1, pe2, _ = st.columns(3)
     with pe1:
-        p["cfd_strike"]=st.slider("CfD Strike Price (USD/MWh)",50,300,p["cfd_strike"],5,key="mb_cfd_s")
-        p["cfd_ref"]   =st.slider("CfD Market Reference (USD/MWh)",30,200,p["cfd_ref"],5,key="mb_cfd_r")
+        p["cfd_strike"] = st.slider("CfD Strike Price (USD/MWh)",     50, 300, p["cfd_strike"],  5, key="mb_cfd_s")
+        p["cfd_ref"]    = st.slider("CfD Market Reference (USD/MWh)", 30, 200, p["cfd_ref"],     5, key="mb_cfd_r")
     with pe2:
-        p["fuel"]=st.slider("Fuel Mandate Offtake (USD/MWh)",100,600,p["fuel"],10,key="mb_fuel")
+        p["fuel"]       = st.slider("Fuel Mandate Offtake (USD/MWh)", 100, 600, p["fuel"],      10, key="mb_fuel")
 
     st.markdown('<div class="sec-head">Commodity Prices</div>', unsafe_allow_html=True)
-    pco1,pco2,pco3=st.columns(3)
-    with pco1: p["electricity"]=st.slider("Grid Electricity (USD/MWh)",20,200,p["electricity"],5,key="mb_elec")
-    with pco2: p["gas"]        =st.slider("Natural Gas (USD/MMBtu)",2,30,p["gas"],1,key="mb_gas")
-    with pco3: p["biomass"]    =st.slider("Biomass / Feedstock (USD/MWh)",10,120,p["biomass"],5,key="mb_bio")
+    pco1, pco2, pco3 = st.columns(3)
+    with pco1: p["electricity"] = st.slider("Grid Electricity (USD/MWh)",    20, 200, p["electricity"], 5, key="mb_elec")
+    with pco2: p["gas"]         = st.slider("Natural Gas (USD/MMBtu)",         2,  30, p["gas"],         1, key="mb_gas")
+    with pco3: p["biomass"]     = st.slider("Biomass / Feedstock (USD/MWh)",  10, 120, p["biomass"],     5, key="mb_bio")
 
-    st.session_state.p=p
+    st.session_state.p = p
 
     st.markdown('<div class="sec-head">Current Price Summary</div>', unsafe_allow_html=True)
-    items=[
-        ("ETS / Carbon Market",p["ets"],"USD/tCO₂e"),("Carbon Tax",p["ctax"],"USD/tCO₂e"),
-        ("VCM / CDM Credit",p["vcm"],"USD/tCO₂e"),("CBAM Import",p["cbam"],"USD/tCO₂e"),
-        ("CORSIA Credit",p["corsia"],"USD/tCO₂e"),("IMO Levy",p["imo"],"USD/tCO₂e"),
-        ("Feebate",p["feebate"],"USD/tCO₂e"),("CfD Strike",p["cfd_strike"],"USD/MWh"),
-        ("CfD Reference",p["cfd_ref"],"USD/MWh"),("Fuel Mandate",p["fuel"],"USD/MWh"),
-        ("AMC Price",p["amc"],"USD/unit"),("Grid Electricity",p["electricity"],"USD/MWh"),
-        ("Natural Gas",p["gas"],"USD/MMBtu"),("Biomass/Feedstock",p["biomass"],"USD/MWh"),
+    items = [
+        ("ETS / Carbon Market", p["ets"],         "USD/tCO₂e"),
+        ("Carbon Tax",          p["ctax"],         "USD/tCO₂e"),
+        ("VCM / CDM Credit",    p["vcm"],          "USD/tCO₂e"),
+        ("CBAM Import",         p["cbam"],         "USD/tCO₂e"),
+        ("CORSIA Credit",       p["corsia"],       "USD/tCO₂e"),
+        ("IMO Levy",            p["imo"],          "USD/tCO₂e"),
+        ("Feebate",             p["feebate"],      "USD/tCO₂e"),
+        ("CfD Strike",          p["cfd_strike"],   "USD/MWh"),
+        ("CfD Reference",       p["cfd_ref"],      "USD/MWh"),
+        ("Fuel Mandate",        p["fuel"],         "USD/MWh"),
+        ("AMC Price",           p["amc"],          "USD/unit"),
+        ("Grid Electricity",    p["electricity"],  "USD/MWh"),
+        ("Natural Gas",         p["gas"],          "USD/MMBtu"),
+        ("Biomass/Feedstock",   p["biomass"],      "USD/MWh"),
     ]
-    cols=st.columns(4)
-    for idx,(lbl,val,unit) in enumerate(items):
-        cols[idx%4].markdown(card(val,lbl,unit),unsafe_allow_html=True)
+    cols = st.columns(4)
+    for idx, (lbl, val, unit) in enumerate(items):
+        cols[idx%4].markdown(kpi(val, lbl, unit), unsafe_allow_html=True)
 
-    st.markdown("")
-    rb1,_,_=st.columns([1,1,4])
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    rb1, _, _ = st.columns([1,1,4])
     with rb1:
-        if st.button("↺  Reset to Defaults",use_container_width=True,key="rst_mbm"):
-            st.session_state.p  =dict(DEFAULT_PRICES)
-            st.session_state.ti ={k:list(v) for k,v in DEFAULTS.items()}
+        if st.button("↺  Reset to Defaults", use_container_width=True, key="rst_mbm"):
+            st.session_state.p  = dict(DEFAULT_PRICES)
+            st.session_state.ti = {k:list(v) for k,v in DEFAULTS.items()}
             st.rerun()
