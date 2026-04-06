@@ -532,9 +532,9 @@ st.markdown("""
 # ─────────────────────────────────────────────
 # SLIDE NAVIGATION (in-page)
 # ─────────────────────────────────────────────
-SLIDES = ["📊  Portfolio Overview", "🔬  Technology Detail", "📈  Scenario Analysis", "📋  Data Table"]
+SLIDES = ["📊  Portfolio Overview", "🔬  Technology Detail", "📈  Scenario Analysis", "📋  Data Table", "⚙️  MBM Price Controls"]
 
-col_nav = st.columns(len(SLIDES) + 1)
+col_nav = st.columns(len(SLIDES))
 for i, label in enumerate(SLIDES):
     with col_nav[i]:
         if st.button(label, key=f"nav_{i}", use_container_width=True,
@@ -934,3 +934,82 @@ elif slide == 3:
     fig_hm.update_layout(**plotly_base(500, margin=dict(l=100,r=20,t=20,b=100)))
     fig_hm.update_layout(xaxis=dict(tickangle=-40))
     st.plotly_chart(fig_hm, use_container_width=True)
+
+# ═══════════════════════════════════════════
+# SLIDE 4 — MBM PRICE CONTROLS
+# ═══════════════════════════════════════════
+elif slide == 4:
+    st.markdown("""
+    <div class="slide-header">MBM Price Controls</div>
+    <div class="slide-sub">Adjust all market-based mechanism parameters — changes apply instantly across all slides</div>
+    """, unsafe_allow_html=True)
+
+    p = st.session_state.prices
+
+    st.markdown('<div class="section-label">Carbon Pricing</div>', unsafe_allow_html=True)
+    pc1, pc2, pc3 = st.columns(3)
+    with pc1:
+        p["ets"]    = st.slider("ETS / Carbon Market (USD/tCO₂e)", 10, 300, p["ets"], 5, key="mb_ets")
+        p["ctax"]   = st.slider("Carbon Tax (USD/tCO₂e)", 0, 200, p["ctax"], 5, key="mb_ctax")
+        p["corsia"] = st.slider("CORSIA Credit (USD/tCO₂e)", 3, 100, int(p["corsia"]), 1, key="mb_corsia")
+    with pc2:
+        p["vcm"]    = st.slider("VCM / CDM Credit (USD/tCO₂e)", 5, 300, p["vcm"], 5, key="mb_vcm")
+        p["cbam"]   = st.slider("CBAM Import Cost (USD/tCO₂e)", 10, 150, p["cbam"], 5, key="mb_cbam")
+        p["imo"]    = st.slider("IMO Levy (USD/tCO₂e)", 50, 800, p["imo"], 10, key="mb_imo")
+    with pc3:
+        p["feebate"] = st.slider("Feebate Rate (USD/tCO₂e)", 0, 150, p["feebate"], 5, key="mb_feebate")
+        p["amc"]     = st.slider("AMC Price (USD/unit)", 50, 300, p["amc"], 10, key="mb_amc")
+
+    st.markdown('<div class="section-label">Energy & Policy Prices</div>', unsafe_allow_html=True)
+    pe1, pe2, pe3 = st.columns(3)
+    with pe1:
+        p["cfd_strike"] = st.slider("CfD Strike Price (USD/MWh)", 50, 300, p["cfd_strike"], 5, key="mb_cfd_strike")
+        p["cfd_ref"]    = st.slider("CfD Market Reference (USD/MWh)", 30, 200, p["cfd_ref"], 5, key="mb_cfd_ref")
+    with pe2:
+        p["fuel"] = st.slider("Fuel Mandate Offtake (USD/MWh)", 100, 600, p["fuel"], 10, key="mb_fuel")
+
+    st.markdown('<div class="section-label">Commodity Prices</div>', unsafe_allow_html=True)
+    pco1, pco2, pco3 = st.columns(3)
+    with pco1:
+        p["electricity"] = st.slider("Grid Electricity (USD/MWh)", 20, 200, p["electricity"], 5, key="mb_elec")
+    with pco2:
+        p["gas"] = st.slider("Natural Gas (USD/MMBtu)", 2, 30, p["gas"], 1, key="mb_gas")
+    with pco3:
+        p["biomass"] = st.slider("Biomass / Feedstock (USD/MWh)", 10, 120, p["biomass"], 5, key="mb_biomass")
+
+    st.session_state.prices = p
+
+    st.markdown('<div class="section-label">Current Price Summary</div>', unsafe_allow_html=True)
+    price_items = [
+        ("ETS / Carbon Market", p["ets"], "USD/tCO₂e"),
+        ("Carbon Tax", p["ctax"], "USD/tCO₂e"),
+        ("VCM / CDM Credit", p["vcm"], "USD/tCO₂e"),
+        ("CBAM Import", p["cbam"], "USD/tCO₂e"),
+        ("CORSIA Credit", p["corsia"], "USD/tCO₂e"),
+        ("IMO Levy", p["imo"], "USD/tCO₂e"),
+        ("Feebate", p["feebate"], "USD/tCO₂e"),
+        ("CfD Strike", p["cfd_strike"], "USD/MWh"),
+        ("CfD Reference", p["cfd_ref"], "USD/MWh"),
+        ("Fuel Mandate", p["fuel"], "USD/MWh"),
+        ("AMC", p["amc"], "USD/unit"),
+        ("Grid Electricity", p["electricity"], "USD/MWh"),
+        ("Natural Gas", p["gas"], "USD/MMBtu"),
+        ("Biomass/Feedstock", p["biomass"], "USD/MWh"),
+    ]
+    cols_ps = st.columns(4)
+    for idx, (label, val, unit) in enumerate(price_items):
+        with cols_ps[idx % 4]:
+            st.markdown(f"""
+            <div class="kpi-card" style="padding:14px 16px;margin-bottom:8px">
+                <div class="kpi-value" style="font-size:1.2rem">{val}</div>
+                <div class="kpi-label">{label}</div>
+                <div class="kpi-delta">{unit}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown("")
+    rb1, _rb2, _rb3 = st.columns([1,1,4])
+    with rb1:
+        if st.button("↺  Reset to Defaults", use_container_width=True, key="reset_mbm"):
+            st.session_state.prices = dict(DEFAULT_PRICES)
+            st.session_state.tech_inputs = {k: list(v) for k,v in DEFAULTS.items()}
+            st.rerun()
