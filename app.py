@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="Technology Innovation Revenue Model",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ─────────────────────────────────────────────
@@ -50,9 +50,7 @@ html, body, [class*="css"] {
     font-family: 'Inter', sans-serif !important;
 }
 
-.main, .block-container {
-    background: var(--bg) !important;
-    color: var(--text) !important;
+.block-container {
     padding-top: 0 !important;
     padding-bottom: 2rem !important;
     max-width: 100% !important;
@@ -64,15 +62,7 @@ html, body, [class*="css"] {
 
 /* === SIDEBAR === */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%) !important;
     border-right: 1px solid var(--border2) !important;
-}
-[data-testid="stSidebar"] .stMarkdown,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] .stSlider,
-[data-testid="stSidebar"] span,
-[data-testid="stSidebar"] p {
-    color: var(--text) !important;
 }
 [data-testid="stSidebar"] .stSlider [data-testid="stSliderThumb"] {
     background: var(--blue-400) !important;
@@ -210,8 +200,7 @@ html, body, [class*="css"] {
 }
 
 /* === DATA TABLE === */
-.stDataFrame { background: var(--surface2) !important; border-radius: var(--radius) !important; }
-.stDataFrame table { color: var(--text) !important; }
+.stDataFrame { border-radius: var(--radius) !important; }
 [data-testid="stDataFrameResizable"] {
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
@@ -220,25 +209,20 @@ html, body, [class*="css"] {
 
 /* === STREAMLIT METRICS OVERRIDE === */
 [data-testid="stMetric"] {
-    background: linear-gradient(135deg, var(--surface2), var(--surface3));
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 14px 18px !important;
 }
-[data-testid="stMetricValue"] { color: var(--blue-200) !important; font-size: 1.4rem !important; }
-[data-testid="stMetricLabel"] { color: var(--text-muted) !important; }
+[data-testid="stMetricValue"] { font-size: 1.4rem !important; }
 [data-testid="stMetricDelta"] { color: var(--blue-400) !important; }
 
 /* === TABS (now used as mini-nav inside slides) === */
 .stTabs [data-baseweb="tab-list"] {
-    background: var(--surface2) !important;
     border-radius: 10px !important; gap: 4px;
     border-bottom: none !important;
     padding: 4px !important;
 }
 .stTabs [data-baseweb="tab"] {
-    background: transparent !important;
-    color: var(--text-muted) !important;
     border-radius: 8px !important;
     font-size: 0.82rem !important;
     padding: 6px 16px !important;
@@ -252,9 +236,7 @@ html, body, [class*="css"] {
 /* === SELECT/INPUT === */
 .stSelectbox > div > div,
 .stNumberInput > div > div > input {
-    background: var(--surface2) !important;
     border: 1px solid var(--border2) !important;
-    color: var(--text) !important;
     border-radius: 8px !important;
 }
 
