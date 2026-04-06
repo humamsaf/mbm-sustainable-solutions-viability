@@ -346,6 +346,9 @@ NAV = [
     ("Portfolio Overview",  "📊"),
     ("Technology Detail",   "🔬"),
     ("Scenario Analysis",   "📈"),
+    ("NPV Analysis",        "💰"),
+    ("Tech Calculations",   "🧮"),
+    ("Spatial Viability",   "🌍"),
     ("Data Table",          "🗂️"),
     ("MBM Price Controls",  "⚙️"),
 ]
@@ -820,3 +823,513 @@ elif page == "MBM Price Controls":
             st.session_state.p  = dict(DEFAULT_PRICES)
             st.session_state.ti = {k:list(v) for k,v in DEFAULTS.items()}
             st.rerun()
+
+# ═════════════════════════════════════════════
+# PAGE 6 — NPV ANALYSIS (with MBM)
+# ═════════════════════════════════════════════
+elif page == "NPV Analysis":
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Investment Valuation</div>
+        <div class="page-header-title">💰 NPV Analysis</div>
+        <div class="page-header-sub">Net Present Value incorporating MBM revenue streams and forecast assumptions</div>
+    </div>''', unsafe_allow_html=True)
+
+    # ── NPV Theory Card ──
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #6ee7b7;border-radius:10px;padding:14px 18px;margin-bottom:18px;">
+    <div style="font-size:0.75rem;font-weight:700;color:#065f46;margin-bottom:6px;">NPV EQUATION WITH MBM</div>
+    <div style="font-size:0.82rem;color:#1f2937;font-family:monospace;">
+    NPV = −CAPEX  +  Σ<sub>t=1..T</sub>  [ (Direct_Rev<sub>t</sub> + MBM_Rev<sub>t</sub> − OPEX<sub>t</sub>) / (1 + WACC)<sup>t</sup> ]
+    </div>
+    <div style="font-size:0.72rem;color:#6b7280;margin-top:6px;">
+    MBM_Rev<sub>t</sub> = ETS<sub>t</sub> + Carbon Tax<sub>t</sub> + VCM<sub>t</sub> + CfD<sub>t</sub> + CBAM<sub>t</sub> + CORSIA<sub>t</sub> + IMO<sub>t</sub> + AMC<sub>t</sub> + Feebate<sub>t</sub>
+    &nbsp;|&nbsp; Carbon prices grow at user-defined annual rate
+    </div>
+    </div>""", unsafe_allow_html=True)
+
+    # ── Controls ──
+    st.markdown('<div class="sec-head">NPV Assumptions</div>', unsafe_allow_html=True)
+    nc1, nc2, nc3 = st.columns(3)
+    with nc1:
+        sel_npv = st.selectbox("Technology", TECHNOLOGIES, index=0, key="npv_sel")
+        t_npv = TECHNOLOGIES.index(sel_npv)
+        discount_rate = st.slider("Discount Rate (WACC override %)", 2.0, 25.0,
+                                   st.session_state.ti["wacc"][t_npv]*100, 0.5, key="npv_dr") / 100
+    with nc2:
+        mbm_growth = st.slider("Annual MBM Price Growth (%/yr)", -5.0, 20.0, 5.0, 0.5, key="npv_mg") / 100
+        direct_growth = st.slider("Annual Direct Revenue Growth (%/yr)", -5.0, 15.0, 2.0, 0.5, key="npv_dg") / 100
+    with nc3:
+        opex_inflation = st.slider("OPEX Inflation (%/yr)", 0.0, 10.0, 2.5, 0.5, key="npv_oi") / 100
+        show_mbm_toggle = st.radio("Include MBM in NPV?", ["Yes — with MBM", "No — without MBM"], key="npv_mbm")
+
+    include_mbm = (show_mbm_toggle == "Yes — with MBM")
+
+    # ── Compute year-by-year cash flows ──
+    ti = st.session_state.ti
+    p  = st.session_state.p
+    lt = ti["project_lifetime"][t_npv]
+    ck = ti["installed_capacity"][t_npv] * 1000
+    capex_total = ck * ti["capex_per_kw"][t_npv]
+
+    base_result = compute(p, t_npv, ti)
+    base_dr   = base_result["dr"]
+    base_mb   = base_result["mb"]
+    base_opex = base_result["tc"] - base_result["ac"]   # exclude annualised CAPEX from annual opex
+
+    years, cfs_mbm, cfs_no_mbm, disc_cfs_mbm, disc_cfs_no_mbm = [], [], [], [], []
+    cumulative_mbm, cumulative_no = [], []
+    cum_m = -capex_total
+    cum_n = -capex_total
+
+    for yr in range(1, lt + 1):
+        dr_t    = base_dr   * (1 + direct_growth) ** (yr - 1)
+        mb_t    = base_mb   * (1 + mbm_growth)    ** (yr - 1)
+        opex_t  = base_opex * (1 + opex_inflation) ** (yr - 1)
+
+        cf_mbm  = dr_t + mb_t - opex_t
+        cf_no   = dr_t - opex_t
+
+        dcf_mbm = cf_mbm / (1 + discount_rate) ** yr
+        dcf_no  = cf_no  / (1 + discount_rate) ** yr
+
+        years.append(yr)
+        cfs_mbm.append(cf_mbm / 1e6)
+        cfs_no_mbm.append(cf_no / 1e6)
+        disc_cfs_mbm.append(dcf_mbm / 1e6)
+        disc_cfs_no_mbm.append(dcf_no / 1e6)
+
+        cum_m += dcf_mbm
+        cum_n += dcf_no
+        cumulative_mbm.append(cum_m / 1e6)
+        cumulative_no.append(cum_n / 1e6)
+
+    npv_with_mbm  = sum(disc_cfs_mbm)    - capex_total / 1e6
+    npv_no_mbm    = sum(disc_cfs_no_mbm) - capex_total / 1e6
+    mbm_npv_delta = npv_with_mbm - npv_no_mbm
+
+    # ── KPIs ──
+    n1, n2, n3, n4 = st.columns(4)
+    npv_disp = npv_with_mbm if include_mbm else npv_no_mbm
+    color_npv = "#059669" if npv_disp >= 0 else "#dc2626"
+    n1.markdown(kpi(f"${npv_disp:.1f}M",
+                    "NPV" + (" (with MBM)" if include_mbm else " (no MBM)"),
+                    "✅ Positive" if npv_disp >= 0 else "❌ Negative"), unsafe_allow_html=True)
+    n2.markdown(kpi(f"${npv_with_mbm:.1f}M",  "NPV with MBM",  f"CAPEX {capex_total/1e6:.1f}M"), unsafe_allow_html=True)
+    n3.markdown(kpi(f"${npv_no_mbm:.1f}M",    "NPV without MBM", f"Δ ${mbm_npv_delta:.1f}M"), unsafe_allow_html=True)
+    n4.markdown(kpi(f"${mbm_npv_delta:.1f}M", "MBM NPV Uplift",
+                    "Value added by MBM"), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">Discounted Cash Flow Profile</div>', unsafe_allow_html=True)
+    fn1, fn2 = st.columns(2)
+
+    with fn1:
+        fig_cf = go.Figure()
+        fig_cf.add_trace(go.Bar(name="Annual CF (with MBM)", x=years, y=cfs_mbm,
+                                marker_color="#059669", opacity=0.85))
+        fig_cf.add_trace(go.Bar(name="Annual CF (no MBM)", x=years, y=cfs_no_mbm,
+                                marker_color="#a7f3d0"))
+        fig_cf.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
+        fig_cf.update_layout(**pl(340))
+        fig_cf.update_layout(barmode="overlay", xaxis_title="Year", yaxis_title="USD Million",
+                              title=dict(text="Annual Cash Flows", font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_cf, use_container_width=True)
+
+    with fn2:
+        fig_cum = go.Figure()
+        fig_cum.add_trace(go.Scatter(name="Cumulative NPV (with MBM)", x=years, y=cumulative_mbm,
+                                     line=dict(color="#059669", width=2.5), fill="tozeroy",
+                                     fillcolor="rgba(5,150,105,0.08)"))
+        fig_cum.add_trace(go.Scatter(name="Cumulative NPV (no MBM)", x=years, y=cumulative_no,
+                                     line=dict(color="#6ee7b7", width=2, dash="dot")))
+        fig_cum.add_hline(y=0, line_color="#dc2626", line_width=1.5, line_dash="dash",
+                          annotation_text="Break-even", annotation_font_color="#dc2626",
+                          annotation_font_size=9)
+        fig_cum.update_layout(**pl(340))
+        fig_cum.update_layout(xaxis_title="Year", yaxis_title="USD Million (NPV)",
+                               title=dict(text="Cumulative NPV (incl. CAPEX)", font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_cum, use_container_width=True)
+
+    # ── MBM Forecast curves ──
+    st.markdown('<div class="sec-head">MBM Price Forecast Assumptions</div>', unsafe_allow_html=True)
+    mechs_active = ["ETS","Carbon Tax","VCM/CDM","CfD","CBAM","CORSIA","IMO Levy","AMC","Feebate"]
+    mbm_base_vals = [p["ets"], p["ctax"], p["vcm"], p["cfd_strike"]-p["cfd_ref"],
+                     p["cbam"], p["corsia"], p["imo"], p["amc"], p["feebate"]]
+
+    fig_mbm_fcast = go.Figure()
+    for mname, mbase in zip(mechs_active, mbm_base_vals):
+        if mbase > 0:
+            fcast_vals = [mbase * (1 + mbm_growth) ** yr for yr in range(1, lt + 1)]
+            fig_mbm_fcast.add_trace(go.Scatter(
+                name=mname, x=years, y=fcast_vals,
+                mode="lines", line=dict(width=2)))
+    fig_mbm_fcast.update_layout(**pl(300))
+    fig_mbm_fcast.update_layout(xaxis_title="Year", yaxis_title="USD/tCO₂e or USD/MWh",
+                                  title=dict(text=f"MBM Price Trajectories (growth: {mbm_growth*100:.1f}%/yr)",
+                                             font=dict(size=11, color=FC), y=0.98))
+    st.plotly_chart(fig_mbm_fcast, use_container_width=True)
+
+    # ── Portfolio NPV table ──
+    st.markdown('<div class="sec-head">Portfolio NPV Summary (All Technologies)</div>', unsafe_allow_html=True)
+    npv_rows = []
+    for i in range(14):
+        lt_i  = ti["project_lifetime"][i]
+        ck_i  = ti["installed_capacity"][i] * 1000
+        cap_i = ck_i * ti["capex_per_kw"][i]
+        dr_i  = AR[i]["dr"]
+        mb_i  = AR[i]["mb"]
+        op_i  = AR[i]["tc"] - AR[i]["ac"]
+        w_i   = ti["wacc"][i]
+        npv_m_i = -cap_i + sum((dr_i*(1+direct_growth)**(y-1) + mb_i*(1+mbm_growth)**(y-1)
+                                 - op_i*(1+opex_inflation)**(y-1)) / (1+w_i)**y
+                                for y in range(1, lt_i+1))
+        npv_n_i = -cap_i + sum((dr_i*(1+direct_growth)**(y-1)
+                                 - op_i*(1+opex_inflation)**(y-1)) / (1+w_i)**y
+                                for y in range(1, lt_i+1))
+        npv_rows.append({
+            "Technology":       TECHNOLOGIES[i],
+            "CAPEX ($M)":       round(cap_i/1e6, 1),
+            "Lifetime (yr)":    lt_i,
+            "WACC (%)":         round(w_i*100, 1),
+            "NPV with MBM ($M)":round(npv_m_i/1e6, 1),
+            "NPV no MBM ($M)":  round(npv_n_i/1e6, 1),
+            "MBM Uplift ($M)":  round((npv_m_i - npv_n_i)/1e6, 1),
+            "Viable (MBM)?":    "✅ Yes" if npv_m_i >= 0 else "❌ No",
+            "Viable (no MBM)?": "✅ Yes" if npv_n_i >= 0 else "❌ No",
+        })
+    df_npv = pd.DataFrame(npv_rows)
+    st.dataframe(df_npv.style.background_gradient(
+        subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"], cmap="RdYlGn"),
+        use_container_width=True, height=540)
+    st.download_button("⬇ Download NPV CSV", df_npv.to_csv(index=False).encode(),
+                       "npv_analysis.csv", "text/csv")
+
+
+# ═════════════════════════════════════════════
+# PAGE 7 — TECHNOLOGY CALCULATIONS
+# ═════════════════════════════════════════════
+elif page == "Tech Calculations":
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Engineering Economics</div>
+        <div class="page-header-title">🧮 Technology Calculations</div>
+        <div class="page-header-sub">Core engineering and financial equations per technology — select a technology to explore</div>
+    </div>''', unsafe_allow_html=True)
+
+    sel_tc = st.selectbox("Select Technology", TECHNOLOGIES, index=0, key="tc_sel")
+    t_tc   = TECHNOLOGIES.index(sel_tc)
+    ti     = st.session_state.ti
+    p      = st.session_state.p
+
+    # ── Pull tech parameters ──
+    o    = ti["annual_output"][t_tc]
+    ck   = ti["installed_capacity"][t_tc] * 1000   # kW
+    lt   = ti["project_lifetime"][t_tc]
+    w    = ti["wacc"][t_tc]
+    cap  = ck * ti["capex_per_kw"][t_tc]
+    cf   = ti["capacity_factor"][t_tc]
+    crf  = calc_crf(w, lt)
+    ann_cap = cap * crf
+    fo   = cap * ti["opex_pct"][t_tc]
+    feedstock = ti["feedstock_cost"][t_tc]
+    other_op  = ti["other_opex"][t_tc]
+    co2  = o * ti["co2_abated_factor"][t_tc]
+    lr   = ti["learning_rate"][t_tc]
+    cum_now  = ti["cum_cap_now"][t_tc]
+    cum_2035 = ti["cum_cap_2035"][t_tc]
+
+    r_tc = compute(p, t_tc, ti)
+
+    st.markdown('<div class="sec-head">📐 1. Capacity & Output Metrics</div>', unsafe_allow_html=True)
+    tc1, tc2, tc3, tc4 = st.columns(4)
+    tc1.markdown(kpi(f"{ck/1000:.1f} MW", "Installed Capacity", "Nameplate"), unsafe_allow_html=True)
+    tc2.markdown(kpi(f"{cf*100:.1f}%", "Capacity Factor", "Utilisation"), unsafe_allow_html=True)
+    theoretical_max = ck * 8760 / 1000  # MWh
+    actual_out_mwh  = ck * cf * 8760 / 1000
+    tc3.markdown(kpi(f"{actual_out_mwh:,.0f} MWh", "Theoretical Output/yr", f"CF × {theoretical_max:,.0f} MWh max"), unsafe_allow_html=True)
+    tc4.markdown(kpi(f"{o:,.0f}", "Configured Output/yr", "MWh or units"), unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#374151;font-family:monospace;margin-bottom:8px;">
+    Theoretical Annual Output = Installed Capacity (kW) × Capacity Factor × 8760 hrs<br>
+    = {:.0f} kW × {:.2f} × 8,760  =  <b>{:,.0f} MWh/yr</b>
+    </div>""".format(ck, cf, actual_out_mwh), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">🏗️ 2. CAPEX & Annualisation</div>', unsafe_allow_html=True)
+    cc1, cc2, cc3, cc4 = st.columns(4)
+    cc1.markdown(kpi(f"${cap/1e6:.1f}M",     "Total CAPEX",        f"${ti['capex_per_kw'][t_tc]:,}/kW × {ck/1000:.0f} MW"), unsafe_allow_html=True)
+    cc2.markdown(kpi(f"{w*100:.1f}%",         "WACC",               "Discount rate"), unsafe_allow_html=True)
+    cc3.markdown(kpi(f"{crf:.4f}",            "Capital Recovery Factor", f"CRF = WACC(1+WACC)ᴺ / ((1+WACC)ᴺ−1)"), unsafe_allow_html=True)
+    cc4.markdown(kpi(f"${ann_cap/1e6:.2f}M",  "Annualised CAPEX",   f"CAPEX × CRF"), unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#374151;font-family:monospace;margin-bottom:8px;">
+    CRF = WACC × (1+WACC)ᴺ / [(1+WACC)ᴺ − 1]<br>
+    = {:.3f} × (1+{:.3f})^{} / [(1+{:.3f})^{} − 1]  =  <b>{:.4f}</b><br><br>
+    Annual CAPEX Charge = ${:.1f}M × {:.4f} = <b>${:.2f}M/yr</b>
+    </div>""".format(w, w, lt, w, lt, crf, cap/1e6, crf, ann_cap/1e6), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">💸 3. Annual OPEX Breakdown</div>', unsafe_allow_html=True)
+    op1, op2, op3, op4 = st.columns(4)
+    total_opex = fo + feedstock + other_op
+    op1.markdown(kpi(f"${fo/1e6:.2f}M",       "Fixed O&M",          f"{ti['opex_pct'][t_tc]*100:.1f}% of CAPEX/yr"), unsafe_allow_html=True)
+    op2.markdown(kpi(f"${feedstock/1e6:.2f}M", "Feedstock Cost",     "Annual"), unsafe_allow_html=True)
+    op3.markdown(kpi(f"${other_op/1e6:.2f}M",  "Other OPEX",         "Overheads etc."), unsafe_allow_html=True)
+    op4.markdown(kpi(f"${total_opex/1e6:.2f}M","Total Annual OPEX",  "Excl. CAPEX charge"), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">🌿 4. CO₂ Abatement & Carbon Value</div>', unsafe_allow_html=True)
+    cv1, cv2, cv3, cv4 = st.columns(4)
+    cv1.markdown(kpi(f"{co2/1e6:.3f} MtCO₂", "Annual Abatement",   f"{ti['co2_abated_factor'][t_tc]} tCO₂/unit"), unsafe_allow_html=True)
+    cv2.markdown(kpi(f"${r_tc['bd'].get('ETS',0)/1e6:.2f}M",    "ETS Value",          f"@${p['ets']}/tCO₂e"), unsafe_allow_html=True)
+    cv3.markdown(kpi(f"${r_tc['bd'].get('VCM/CDM',0)/1e6:.2f}M","VCM Value",          f"@${p['vcm']}/tCO₂e"), unsafe_allow_html=True)
+    mac = (r_tc["tc"] - r_tc["dr"]) / co2 if co2 > 0 else 0
+    cv4.markdown(kpi(f"${mac:.1f}/tCO₂",     "Marginal Abatement Cost", "Total cost net of direct rev"), unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#374151;font-family:monospace;margin-bottom:8px;">
+    CO₂ Abated = Annual Output × CO₂ Factor  =  {:,.0f} × {:.2f}  =  <b>{:,.0f} tCO₂e/yr</b><br>
+    Marginal Abatement Cost = (Total Cost − Direct Revenue) / CO₂ Abated<br>
+    = (${:.1f}M − ${:.1f}M) / {:,.0f}t  =  <b>${:.1f}/tCO₂e</b>
+    </div>""".format(o, ti["co2_abated_factor"][t_tc], co2,
+                     r_tc["tc"]/1e6, r_tc["dr"]/1e6, co2, mac), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">📉 5. Learning Curve (Technology Cost Reduction)</div>', unsafe_allow_html=True)
+    lcol1, lcol2 = st.columns([2, 1])
+    with lcol1:
+        cum_vals = np.logspace(np.log10(max(cum_now, 0.001)), np.log10(max(cum_2035, 0.01)), 50)
+        lcost    = [ti["capex_per_kw"][t_tc] * (c / cum_now) ** (-lr / np.log2(2)) for c in cum_vals]
+        fig_lc   = go.Figure()
+        fig_lc.add_trace(go.Scatter(x=cum_vals, y=lcost, mode="lines",
+                                    line=dict(color="#059669", width=2.5), name="CAPEX/kW"))
+        fig_lc.add_vline(x=cum_now,  line_dash="dot", line_color="#6ee7b7",
+                         annotation_text="Today", annotation_font_size=9)
+        fig_lc.add_vline(x=cum_2035, line_dash="dot", line_color="#059669",
+                         annotation_text="2035", annotation_font_size=9)
+        fig_lc.update_layout(**pl(280))
+        fig_lc.update_layout(xaxis_title="Cumulative Capacity (GW)", xaxis_type="log",
+                              yaxis_title="CAPEX (USD/kW)",
+                              title=dict(text=f"Wright's Law: Learning Rate {lr*100:.0f}%", font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_lc, use_container_width=True)
+    with lcol2:
+        cost_2035 = ti["capex_per_kw"][t_tc] * (cum_2035 / max(cum_now, 0.001)) ** (-lr / np.log2(2))
+        reduction = (1 - cost_2035 / ti["capex_per_kw"][t_tc]) * 100
+        st.markdown(kpi(f"${ti['capex_per_kw'][t_tc]:,}/kW", "CAPEX Today"), unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(kpi(f"${cost_2035:,.0f}/kW", "CAPEX 2035 Est.", f"−{reduction:.0f}% reduction"), unsafe_allow_html=True)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        st.markdown(kpi(f"{lr*100:.0f}%", "Learning Rate", "Per doubling of capacity"), unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#374151;font-family:monospace;">
+    Wright's Law: Cost(C) = Cost(C₀) × (C / C₀)^(−b)   where b = Learning Rate / log(2)<br>
+    CAPEX 2035 = ${:,}/kW × ({:.1f} / {:.3f})^(−{:.3f})  =  <b>${:,.0f}/kW</b>  (−{:.0f}%)
+    </div>""".format(ti["capex_per_kw"][t_tc], cum_2035, max(cum_now, 0.001),
+                     lr / np.log2(2), cost_2035, reduction), unsafe_allow_html=True)
+
+    st.markdown('<div class="sec-head">📊 6. Levelised Cost (LCOE / LCOX)</div>', unsafe_allow_html=True)
+    lco1, lco2, lco3 = st.columns(3)
+    total_annual_cost = ann_cap + fo + feedstock + other_op
+    lcoe = total_annual_cost / o if o > 0 else 0
+    lco_per_tco2 = total_annual_cost / co2 if co2 > 0 else 0
+    lco1.markdown(kpi(f"${lcoe:.3f}/unit", "LCOE / Unit Cost", "Total cost / annual output"), unsafe_allow_html=True)
+    lco2.markdown(kpi(f"${lco_per_tco2:.1f}/tCO₂", "LCOX (Cost/tCO₂)", "Total cost / CO₂ abated"), unsafe_allow_html=True)
+    lco3.markdown(kpi(f"${r_tc['rc']:.2f}×", "Revenue / Cost Ratio", "R/C > 1 = viable"), unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0fdf4;border:1px solid #d1fae5;border-radius:8px;padding:10px 14px;font-size:0.78rem;color:#374151;font-family:monospace;">
+    LCOE = (Ann. CAPEX + Fixed O&M + Feedstock + Other OPEX) / Annual Output<br>
+    = (${:.2f}M + ${:.2f}M + ${:.2f}M + ${:.2f}M) / {:,.0f}  =  <b>${:.3f}/unit</b><br><br>
+    LCOX (Abatement cost) = Total Cost / CO₂ Abated  =  ${:.1f}M / {:,.0f} t  =  <b>${:.1f}/tCO₂e</b>
+    </div>""".format(ann_cap/1e6, fo/1e6, feedstock/1e6, other_op/1e6, o if o > 0 else 1,
+                     lcoe, total_annual_cost/1e6, co2 if co2 > 0 else 1, lco_per_tco2), unsafe_allow_html=True)
+
+
+# ═════════════════════════════════════════════
+# PAGE 8 — SPATIAL VIABILITY
+# ═════════════════════════════════════════════
+elif page == "Spatial Viability":
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Geospatial Analysis</div>
+        <div class="page-header-title">🌍 Spatial Viability</div>
+        <div class="page-header-sub">Technology viability across countries with jurisdiction-specific MBM regimes</div>
+    </div>''', unsafe_allow_html=True)
+
+    # ── Country MBM profiles (ETS price, Carbon Tax, VCM, CBAM applicability, IMO) ──
+    # Columns: country, region, ets_price, ctax_price, vcm_price, cbam_applicable, imo_applicable, corsia_credit, feebate
+    COUNTRY_MBM = {
+        "EU":          {"region":"Europe",      "ets":85,  "ctax":0,   "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
+        "UK":          {"region":"Europe",      "ets":75,  "ctax":20,  "vcm":75,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":220},
+        "Germany":     {"region":"Europe",      "ets":85,  "ctax":35,  "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":240},
+        "Norway":      {"region":"Europe",      "ets":85,  "ctax":60,  "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
+        "Sweden":      {"region":"Europe",      "ets":85,  "ctax":130, "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
+        "USA":         {"region":"Americas",    "ets":20,  "ctax":0,   "vcm":15,  "cbam":0,"imo":0,"corsia":0,"feebate":15,"fuel":180},
+        "Canada":      {"region":"Americas",    "ets":50,  "ctax":65,  "vcm":20,  "cbam":0,"imo":0,"corsia":1,"feebate":5,"fuel":150},
+        "Brazil":      {"region":"Americas",    "ets":0,   "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":100},
+        "Chile":       {"region":"Americas",    "ets":5,   "ctax":5,   "vcm":8,   "cbam":0,"imo":0,"corsia":0,"feebate":0,"fuel":80},
+        "China":       {"region":"Asia-Pacific","ets":12,  "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":100},
+        "Japan":       {"region":"Asia-Pacific","ets":10,  "ctax":3,   "vcm":30,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":250},
+        "South Korea": {"region":"Asia-Pacific","ets":18,  "ctax":0,   "vcm":15,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":200},
+        "Australia":   {"region":"Asia-Pacific","ets":30,  "ctax":0,   "vcm":25,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":160},
+        "India":       {"region":"Asia-Pacific","ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":80},
+        "Indonesia":   {"region":"Asia-Pacific","ets":2,   "ctax":2,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":60},
+        "Singapore":   {"region":"Asia-Pacific","ets":25,  "ctax":25,  "vcm":20,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":150},
+        "Saudi Arabia":{"region":"Middle East", "ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":50},
+        "UAE":         {"region":"Middle East", "ets":0,   "ctax":0,   "vcm":8,   "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":60},
+        "South Africa":{"region":"Africa",      "ets":10,  "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":70},
+        "Kenya":       {"region":"Africa",      "ets":0,   "ctax":0,   "vcm":10,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":50},
+    }
+
+    st.markdown('<div class="sec-head">Configuration</div>', unsafe_allow_html=True)
+    sv1, sv2, sv3 = st.columns(3)
+    with sv1:
+        sel_sv  = st.selectbox("Technology to Deploy", TECHNOLOGIES, index=0, key="sv_sel")
+        t_sv    = TECHNOLOGIES.index(sel_sv)
+    with sv2:
+        viab_metric = st.radio("Viability Metric", ["NPV ($M)", "Net CF ($M)", "R/C Ratio"], key="sv_metric")
+    with sv3:
+        mbm_growth_sv = st.slider("MBM Growth Rate (%/yr)", 0.0, 15.0, 5.0, 0.5, key="sv_mg") / 100
+        show_regions  = st.multiselect("Filter Regions", ["Europe","Americas","Asia-Pacific","Middle East","Africa"],
+                                        default=["Europe","Americas","Asia-Pacific","Middle East","Africa"], key="sv_region")
+
+    ti = st.session_state.ti
+    base_result_sv = compute(st.session_state.p, t_sv, ti)
+
+    # ── Compute per-country ──
+    sv_rows = []
+    for country, cmbm in COUNTRY_MBM.items():
+        if cmbm["region"] not in show_regions:
+            continue
+
+        # Build a country-specific price dict
+        cp = dict(st.session_state.p)
+        cp["ets"]  = cmbm["ets"]
+        cp["ctax"] = cmbm["ctax"]
+        cp["vcm"]  = cmbm["vcm"]
+        cp["imo"]  = cmbm["imo"] * cp["imo"]
+        cp["corsia"] = cmbm["corsia"] * cp["corsia"]
+        cp["feebate"] = cmbm["feebate"] if cmbm["feebate"] > 0 else cp["feebate"]
+        cp["fuel"] = cmbm["fuel"]
+
+        # Override CBAM: only applicable in EU
+        cbam_factor = cmbm["cbam"]
+        ets_factor  = 1 if cmbm["ets"] > 0 else 0
+
+        r_sv = compute(cp, t_sv, ti)
+
+        # NPV for this country
+        lt_sv = ti["project_lifetime"][t_sv]
+        ck_sv = ti["installed_capacity"][t_sv] * 1000
+        cap_sv = ck_sv * ti["capex_per_kw"][t_sv]
+        w_sv   = ti["wacc"][t_sv]
+        dr_sv  = r_sv["dr"]
+        mb_sv  = r_sv["mb"]
+        op_sv  = r_sv["tc"] - r_sv["ac"]
+        npv_sv = -cap_sv + sum(
+            (dr_sv + mb_sv * (1 + mbm_growth_sv)**(y-1) - op_sv) / (1 + w_sv)**y
+            for y in range(1, lt_sv + 1))
+
+        sv_rows.append({
+            "Country":         country,
+            "Region":          cmbm["region"],
+            "ETS ($/tCO₂e)":   cmbm["ets"],
+            "Carbon Tax":      cmbm["ctax"],
+            "VCM ($/tCO₂e)":   cmbm["vcm"],
+            "MBM Rev ($M)":    round(r_sv["mb"]/1e6, 2),
+            "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
+            "Total Rev ($M)":  round(r_sv["tr"]/1e6, 2),
+            "Total Cost ($M)": round(r_sv["tc"]/1e6, 2),
+            "Net CF ($M)":     round(r_sv["nc"]/1e6, 2),
+            "R/C Ratio":       round(r_sv["rc"], 2),
+            "NPV ($M)":        round(npv_sv/1e6, 1),
+            "Viable?":         "✅ Yes" if npv_sv >= 0 else "❌ No",
+        })
+
+    df_sv = pd.DataFrame(sv_rows).sort_values(viab_metric.replace(" ($M)","").strip(), ascending=False).reset_index(drop=True)
+
+    # ── KPIs ──
+    viable_count   = (df_sv["Viable?"] == "✅ Yes").sum()
+    total_count    = len(df_sv)
+    best_country   = df_sv.iloc[0]["Country"] if total_count > 0 else "N/A"
+    best_val       = df_sv.iloc[0][viab_metric] if total_count > 0 else 0
+    worst_country  = df_sv.iloc[-1]["Country"] if total_count > 0 else "N/A"
+    worst_val      = df_sv.iloc[-1][viab_metric] if total_count > 0 else 0
+
+    sv_k1, sv_k2, sv_k3, sv_k4 = st.columns(4)
+    sv_k1.markdown(kpi(f"{viable_count}/{total_count}", "Viable Markets",
+                        "NPV ≥ 0"), unsafe_allow_html=True)
+    sv_k2.markdown(kpi(best_country, "Best Market",
+                        f"{viab_metric}: {best_val}"), unsafe_allow_html=True)
+    sv_k3.markdown(kpi(worst_country, "Weakest Market",
+                        f"{viab_metric}: {worst_val}"), unsafe_allow_html=True)
+    sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count>0 else "N/A",
+                        "Viability Rate", "Across analysed countries"), unsafe_allow_html=True)
+
+    # ── Bar chart — metric by country ──
+    st.markdown('<div class="sec-head">Country Viability Comparison</div>', unsafe_allow_html=True)
+    metric_col = viab_metric
+    colors_sv  = ["#059669" if v >= 0 else "#fca5a5" for v in df_sv[metric_col]]
+    fig_sv = go.Figure(go.Bar(
+        x=df_sv["Country"], y=df_sv[metric_col],
+        marker_color=colors_sv,
+        text=[f"{v:.1f}" for v in df_sv[metric_col]],
+        textposition="outside", textfont=dict(size=8.5, color=FC),
+    ))
+    fig_sv.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
+    fig_sv.update_layout(**pl(360, mb=80))
+    fig_sv.update_layout(xaxis=dict(tickangle=-45), yaxis_title=viab_metric,
+                          title=dict(text=f"{sel_sv} — {viab_metric} by Country",
+                                     font=dict(size=11, color=FC), y=0.98))
+    st.plotly_chart(fig_sv, use_container_width=True)
+
+    # ── MBM revenue by country and mechanism ──
+    st.markdown('<div class="sec-head">MBM Revenue Decomposition by Country</div>', unsafe_allow_html=True)
+    countries_list = df_sv["Country"].tolist()
+    mbm_rev_list   = df_sv["MBM Rev ($M)"].tolist()
+    ets_vals, ctax_vals, vcm_vals, other_vals = [], [], [], []
+    for country in countries_list:
+        cmbm = COUNTRY_MBM[country]
+        cp2  = dict(st.session_state.p)
+        cp2["ets"] = cmbm["ets"]; cp2["ctax"] = cmbm["ctax"]; cp2["vcm"] = cmbm["vcm"]
+        r2 = compute(cp2, t_sv, ti)
+        ets_vals.append(r2["bd"].get("ETS", 0)/1e6)
+        ctax_vals.append(r2["bd"].get("Carbon Tax", 0)/1e6)
+        vcm_vals.append(r2["bd"].get("VCM/CDM", 0)/1e6)
+        other_vals.append(max(0, r2["mb"]/1e6 - r2["bd"].get("ETS",0)/1e6
+                               - r2["bd"].get("Carbon Tax",0)/1e6 - r2["bd"].get("VCM/CDM",0)/1e6))
+
+    fig_mbm_country = go.Figure()
+    fig_mbm_country.add_trace(go.Bar(name="ETS",        x=countries_list, y=ets_vals,  marker_color="#065f46"))
+    fig_mbm_country.add_trace(go.Bar(name="Carbon Tax", x=countries_list, y=ctax_vals, marker_color="#059669"))
+    fig_mbm_country.add_trace(go.Bar(name="VCM/CDM",    x=countries_list, y=vcm_vals,  marker_color="#34d399"))
+    fig_mbm_country.add_trace(go.Bar(name="Other MBMs", x=countries_list, y=other_vals,marker_color="#a7f3d0"))
+    fig_mbm_country.update_layout(**pl(340, mb=80))
+    fig_mbm_country.update_layout(barmode="stack", xaxis=dict(tickangle=-45),
+                                   yaxis_title="USD Million",
+                                   title=dict(text="MBM Revenue Stack by Country",
+                                              font=dict(size=11, color=FC), y=0.98))
+    st.plotly_chart(fig_mbm_country, use_container_width=True)
+
+    # ── Region heatmap ──
+    st.markdown('<div class="sec-head">Carbon Price Heatmap by Country</div>', unsafe_allow_html=True)
+    fig_heat = go.Figure(go.Heatmap(
+        z=[[COUNTRY_MBM[c]["ets"], COUNTRY_MBM[c]["ctax"], COUNTRY_MBM[c]["vcm"]]
+           for c in df_sv["Country"]],
+        x=["ETS ($/tCO₂e)", "Carbon Tax ($/tCO₂e)", "VCM ($/tCO₂e)"],
+        y=df_sv["Country"].tolist(),
+        colorscale=[[0,"#f9fafb"],[0.01,"#d1fae5"],[1,"#059669"]],
+        showscale=True,
+        colorbar=dict(title="USD/tCO₂e", titlefont=dict(size=9), tickfont=dict(size=9)),
+        hovertemplate="<b>%{y}</b><br>%{x}: <b>$%{z}</b><extra></extra>",
+    ))
+    fig_heat.update_layout(**pl(480, ml=120, mr=60, mt=20, mb=30))
+    st.plotly_chart(fig_heat, use_container_width=True)
+
+    # ── Full data table ──
+    st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
+    st.dataframe(df_sv.style.background_gradient(
+        subset=["NPV ($M)", "Net CF ($M)", "MBM Rev ($M)"], cmap="RdYlGn"),
+        use_container_width=True, height=600)
+    st.download_button("⬇ Download Spatial Viability CSV",
+                       df_sv.to_csv(index=False).encode(),
+                       "spatial_viability.csv", "text/csv")
