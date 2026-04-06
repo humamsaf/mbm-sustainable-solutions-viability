@@ -502,6 +502,69 @@ if page == "Portfolio Overview":
     fig3.update_layout(xaxis=dict(tickangle=-38), yaxis_title="USD Million")
     st.plotly_chart(fig3, use_container_width=True)
 
+    # ── Stacked MBM Revenue + Comparison charts (side by side) ──
+    st.markdown('<div class="sec-head">MBM Policy Intervention — Stacked Revenue & Direct vs MBM Comparison</div>', unsafe_allow_html=True)
+    ch_l, ch_r = st.columns(2)
+
+    with ch_l:
+        mbm_keys  = ["ETS","Carbon Tax","Fuel Mandate","CfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
+        mbm_colors = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399",
+                      "#6ee7b7","#a7f3d0","#d1fae5","#ecfdf5"]
+        srt_stk = sorted(range(14), key=lambda i: AR[i]["mb"], reverse=True)
+        fig_stk = go.Figure()
+        for mkey, mcol in zip(mbm_keys, mbm_colors):
+            vals = [AR[i]["bd"].get(mkey, 0) / 1e6 for i in srt_stk]
+            fig_stk.add_trace(go.Bar(
+                name=mkey,
+                x=[TECH_SHORT[i] for i in srt_stk],
+                y=vals,
+                marker_color=mcol,
+                text=[f"${v:.1f}M" if v > 2 else "" for v in vals],
+                textposition="inside",
+                textfont=dict(size=7.5, color="#ffffff"),
+            ))
+        fig_stk.update_layout(**pl(420, mb=80))
+        fig_stk.update_layout(
+            barmode="stack",
+            xaxis=dict(tickangle=-42),
+            yaxis_title="USD Million",
+            legend=dict(orientation="h", y=-0.32, font=dict(size=8)),
+            title=dict(text="Revenue from MBM Policy Intervention",
+                       font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_stk, use_container_width=True)
+
+    with ch_r:
+        srt_cmp = sorted(range(14), key=lambda i: AR[i]["tr"], reverse=True)
+        fig_cmp = go.Figure()
+        fig_cmp.add_trace(go.Bar(
+            name="Direct Product/Service Revenue",
+            x=[AR[i]["dr"] / 1e6 for i in srt_cmp],
+            y=[TECH_SHORT[i] for i in srt_cmp],
+            orientation="h",
+            marker_color="#dc2626",
+            text=[f"${AR[i]['dr']/1e6:.0f}M" if AR[i]["dr"] > 1e6 else "" for i in srt_cmp],
+            textposition="inside",
+            textfont=dict(size=8, color="#ffffff"),
+        ))
+        fig_cmp.add_trace(go.Bar(
+            name="MBM Revenue",
+            x=[AR[i]["mb"] / 1e6 for i in srt_cmp],
+            y=[TECH_SHORT[i] for i in srt_cmp],
+            orientation="h",
+            marker_color="#059669",
+            text=[f"${AR[i]['mb']/1e6:.0f}M" if AR[i]["mb"] > 1e6 else "" for i in srt_cmp],
+            textposition="inside",
+            textfont=dict(size=8, color="#ffffff"),
+        ))
+        fig_cmp.update_layout(**pl(420, ml=90, mb=40))
+        fig_cmp.update_layout(
+            barmode="group",
+            xaxis_title="USD Million",
+            legend=dict(orientation="h", y=-0.12, font=dict(size=8)),
+            title=dict(text="Comparison of Revenue from MBM and Direct Revenue",
+                       font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_cmp, use_container_width=True)
+
     st.markdown('<div class="sec-head">Technology Ranking</div>', unsafe_allow_html=True)
     srt2 = sorted(range(14), key=lambda i: AR[i]["tr"], reverse=True)
     mx = AR[srt2[0]]["tr"]
