@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from plotly.subplots import make_subplots
 
 st.set_page_config(
@@ -1216,89 +1217,131 @@ elif page == "Spatial Viability":
     <div class="page-header">
         <div class="page-header-badge">Geospatial Analysis</div>
         <div class="page-header-title">🌍 Spatial Viability</div>
-        <div class="page-header-sub">Technology viability across countries with jurisdiction-specific MBM regimes</div>
+        <div class="page-header-sub">Technology viability across countries with jurisdiction-specific MBM regimes — integrated from Excel matrix</div>
     </div>''', unsafe_allow_html=True)
 
-    # ── Country MBM profiles (ETS price, Carbon Tax, VCM, CBAM applicability, IMO) ──
-    # Columns: country, region, ets_price, ctax_price, vcm_price, cbam_applicable, imo_applicable, corsia_credit, feebate
+    # ── Load Excel MBM matrix (D = Direct demand, I = Indirect demand) ──
+    @st.cache_data
+    def load_excel_mbm():
+        try:
+            df_raw = pd.read_excel("okokoka.xlsx", sheet_name="Sheet1", header=None)
+            # Row 1 = headers, rows 2+ = data
+            headers = df_raw.iloc[1].tolist()  # No, Tech/Solution, Type, ETS, Carbon Tax, Fuel Mandate, CfD, CCfD, CBAM, CORSIA, IMO Levy, VCM/CDM, AMC, Feebate
+            df_mbm  = df_raw.iloc[2:].copy()
+            df_mbm.columns = headers
+            df_mbm = df_mbm.rename(columns={
+                headers[0]: "No", headers[1]: "Technology", headers[2]: "Type",
+                headers[3]: "ETS", headers[4]: "Carbon Tax", headers[5]: "Fuel Mandate",
+                headers[6]: "CfD", headers[7]: "CCfD", headers[8]: "CBAM",
+                headers[9]: "CORSIA", headers[10]: "IMO Levy", headers[11]: "VCM/CDM",
+                headers[12]: "AMC", headers[13]: "Feebate",
+            })
+            df_mbm = df_mbm.dropna(subset=["Technology"])
+            df_mbm = df_mbm.reset_index(drop=True)
+            return df_mbm
+        except Exception:
+            return None
+
+    df_excel = load_excel_mbm()
+
+    # ── Country MBM profiles with ISO-3 for choropleth map ──
     COUNTRY_MBM = {
-        "EU":          {"region":"Europe",      "ets":85,  "ctax":0,   "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
-        "UK":          {"region":"Europe",      "ets":75,  "ctax":20,  "vcm":75,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":220},
-        "Germany":     {"region":"Europe",      "ets":85,  "ctax":35,  "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":240},
-        "Norway":      {"region":"Europe",      "ets":85,  "ctax":60,  "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
-        "Sweden":      {"region":"Europe",      "ets":85,  "ctax":130, "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200},
-        "USA":         {"region":"Americas",    "ets":20,  "ctax":0,   "vcm":15,  "cbam":0,"imo":0,"corsia":0,"feebate":15,"fuel":180},
-        "Canada":      {"region":"Americas",    "ets":50,  "ctax":65,  "vcm":20,  "cbam":0,"imo":0,"corsia":1,"feebate":5,"fuel":150},
-        "Brazil":      {"region":"Americas",    "ets":0,   "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":100},
-        "Chile":       {"region":"Americas",    "ets":5,   "ctax":5,   "vcm":8,   "cbam":0,"imo":0,"corsia":0,"feebate":0,"fuel":80},
-        "China":       {"region":"Asia-Pacific","ets":12,  "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":100},
-        "Japan":       {"region":"Asia-Pacific","ets":10,  "ctax":3,   "vcm":30,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":250},
-        "South Korea": {"region":"Asia-Pacific","ets":18,  "ctax":0,   "vcm":15,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":200},
-        "Australia":   {"region":"Asia-Pacific","ets":30,  "ctax":0,   "vcm":25,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":160},
-        "India":       {"region":"Asia-Pacific","ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":80},
-        "Indonesia":   {"region":"Asia-Pacific","ets":2,   "ctax":2,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":60},
-        "Singapore":   {"region":"Asia-Pacific","ets":25,  "ctax":25,  "vcm":20,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":150},
-        "Saudi Arabia":{"region":"Middle East", "ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":50},
-        "UAE":         {"region":"Middle East", "ets":0,   "ctax":0,   "vcm":8,   "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":60},
-        "South Africa":{"region":"Africa",      "ets":10,  "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":70},
-        "Kenya":       {"region":"Africa",      "ets":0,   "ctax":0,   "vcm":10,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":50},
+        "EU (France)":  {"iso3":"FRA","region":"Europe",       "ets":85,  "ctax":0,   "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200,"cfd":1,"amc":1},
+        "Germany":      {"iso3":"DEU","region":"Europe",       "ets":85,  "ctax":35,  "vcm":80,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":240,"cfd":1,"amc":1},
+        "UK":           {"iso3":"GBR","region":"Europe",       "ets":75,  "ctax":20,  "vcm":75,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":220,"cfd":1,"amc":1},
+        "Norway":       {"iso3":"NOR","region":"Europe",       "ets":85,  "ctax":60,  "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200,"cfd":1,"amc":1},
+        "Sweden":       {"iso3":"SWE","region":"Europe",       "ets":85,  "ctax":130, "vcm":90,  "cbam":1,"imo":1,"corsia":1,"feebate":0,"fuel":200,"cfd":1,"amc":1},
+        "USA":          {"iso3":"USA","region":"Americas",     "ets":20,  "ctax":0,   "vcm":15,  "cbam":0,"imo":0,"corsia":0,"feebate":15,"fuel":180,"cfd":0,"amc":1},
+        "Canada":       {"iso3":"CAN","region":"Americas",     "ets":50,  "ctax":65,  "vcm":20,  "cbam":0,"imo":0,"corsia":1,"feebate":5, "fuel":150,"cfd":1,"amc":1},
+        "Brazil":       {"iso3":"BRA","region":"Americas",     "ets":0,   "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":100,"cfd":0,"amc":0},
+        "Chile":        {"iso3":"CHL","region":"Americas",     "ets":5,   "ctax":5,   "vcm":8,   "cbam":0,"imo":0,"corsia":0,"feebate":0,"fuel":80, "cfd":0,"amc":0},
+        "China":        {"iso3":"CHN","region":"Asia-Pacific", "ets":12,  "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":100,"cfd":0,"amc":0},
+        "Japan":        {"iso3":"JPN","region":"Asia-Pacific", "ets":10,  "ctax":3,   "vcm":30,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":250,"cfd":1,"amc":1},
+        "South Korea":  {"iso3":"KOR","region":"Asia-Pacific", "ets":18,  "ctax":0,   "vcm":15,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":200,"cfd":0,"amc":0},
+        "Australia":    {"iso3":"AUS","region":"Asia-Pacific", "ets":30,  "ctax":0,   "vcm":25,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":160,"cfd":0,"amc":1},
+        "India":        {"iso3":"IND","region":"Asia-Pacific", "ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":80, "cfd":0,"amc":0},
+        "Indonesia":    {"iso3":"IDN","region":"Asia-Pacific", "ets":2,   "ctax":2,   "vcm":5,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":60, "cfd":0,"amc":0},
+        "Singapore":    {"iso3":"SGP","region":"Asia-Pacific", "ets":25,  "ctax":25,  "vcm":20,  "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":150,"cfd":0,"amc":0},
+        "Saudi Arabia": {"iso3":"SAU","region":"Middle East",  "ets":0,   "ctax":0,   "vcm":5,   "cbam":0,"imo":1,"corsia":0,"feebate":0,"fuel":50, "cfd":0,"amc":0},
+        "UAE":          {"iso3":"ARE","region":"Middle East",  "ets":0,   "ctax":0,   "vcm":8,   "cbam":0,"imo":1,"corsia":1,"feebate":0,"fuel":60, "cfd":0,"amc":0},
+        "South Africa": {"iso3":"ZAF","region":"Africa",       "ets":10,  "ctax":10,  "vcm":8,   "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":70, "cfd":0,"amc":0},
+        "Kenya":        {"iso3":"KEN","region":"Africa",       "ets":0,   "ctax":0,   "vcm":10,  "cbam":0,"imo":0,"corsia":1,"feebate":0,"fuel":50, "cfd":0,"amc":0},
     }
 
+    # ── MBM column mapping from DEFAULTS to country profile keys ──
+    MBM_COUNTRY_KEYS = ["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
+    DEFAULTS_KEYS    = ["ets","ctax","fuel","cfd","cbam","corsia","imo","vcm","amc","feebate"]
+
+    def compute_country(country_mbm, t_idx, ti, base_prices, mbm_growth, lifetime_yrs):
+        """Compute NPV & revenue for a specific country's MBM regime."""
+        cp = dict(base_prices)
+        cm = country_mbm
+        cp["ets"]     = cm["ets"]
+        cp["ctax"]    = cm["ctax"]
+        cp["vcm"]     = cm["vcm"]
+        cp["fuel"]    = cm["fuel"]
+        cp["imo"]     = cm["imo"] * base_prices["imo"]
+        cp["corsia"]  = cm["corsia"] * base_prices["corsia"]
+        cp["feebate"] = cm["feebate"] if cm["feebate"] > 0 else base_prices["feebate"]
+        cp["cfd_strike"] = base_prices["cfd_strike"] if cm.get("cfd", 0) else base_prices["cfd_ref"]
+
+        # Override DEFAULTS applicability based on country MBM regime
+        orig_defaults = {}
+        for key in MBM_COUNTRY_KEYS:
+            orig_defaults[key] = DEFAULTS[key][t_idx]
+            DEFAULTS[key][t_idx] = DEFAULTS[key][t_idx] * cm.get(key, 0)
+
+        r = compute(cp, t_idx, ti)
+
+        # Restore DEFAULTS
+        for key in MBM_COUNTRY_KEYS:
+            DEFAULTS[key][t_idx] = orig_defaults[key]
+
+        lt  = ti["project_lifetime"][t_idx]
+        ck  = ti["installed_capacity"][t_idx] * 1000
+        cap = ck * ti["capex_per_kw"][t_idx]
+        w   = ti["wacc"][t_idx]
+        dr  = r["dr"]; mb = r["mb"]; op = r["tc"] - r["ac"]
+        npv = -cap + sum(
+            (dr + mb * (1 + mbm_growth)**(y-1) - op) / (1 + w)**y
+            for y in range(1, lt + 1))
+        return r, npv
+
+    # ── Controls ──
     st.markdown('<div class="sec-head">Configuration</div>', unsafe_allow_html=True)
     sv1, sv2, sv3 = st.columns(3)
     with sv1:
-        sel_sv  = st.selectbox("Technology to Deploy", TECHNOLOGIES, index=0, key="sv_sel")
-        t_sv    = TECHNOLOGIES.index(sel_sv)
+        sel_sv = st.selectbox("Technology to Deploy", TECHNOLOGIES, index=0, key="sv_sel")
+        t_sv   = TECHNOLOGIES.index(sel_sv)
     with sv2:
-        viab_metric = st.radio("Viability Metric", ["NPV ($M)", "Net CF ($M)", "R/C Ratio"], key="sv_metric")
+        viab_metric   = st.radio("Viability Metric", ["NPV ($M)", "Net CF ($M)", "R/C Ratio"], key="sv_metric")
+        map_colorscale = st.selectbox("Map Color Scale", ["Viridis","RdYlGn","Greens","Blues","RdYlBu"], index=2, key="sv_cs")
     with sv3:
         mbm_growth_sv = st.slider("MBM Growth Rate (%/yr)", 0.0, 15.0, 5.0, 0.5, key="sv_mg") / 100
         show_regions  = st.multiselect("Filter Regions", ["Europe","Americas","Asia-Pacific","Middle East","Africa"],
                                         default=["Europe","Americas","Asia-Pacific","Middle East","Africa"], key="sv_region")
 
     ti = st.session_state.ti
-    base_result_sv = compute(st.session_state.p, t_sv, ti)
 
     # ── Compute per-country ──
     sv_rows = []
     for country, cmbm in COUNTRY_MBM.items():
         if cmbm["region"] not in show_regions:
             continue
-
-        # Build a country-specific price dict
-        cp = dict(st.session_state.p)
-        cp["ets"]  = cmbm["ets"]
-        cp["ctax"] = cmbm["ctax"]
-        cp["vcm"]  = cmbm["vcm"]
-        cp["imo"]  = cmbm["imo"] * cp["imo"]
-        cp["corsia"] = cmbm["corsia"] * cp["corsia"]
-        cp["feebate"] = cmbm["feebate"] if cmbm["feebate"] > 0 else cp["feebate"]
-        cp["fuel"] = cmbm["fuel"]
-
-        # Override CBAM: only applicable in EU
-        cbam_factor = cmbm["cbam"]
-        ets_factor  = 1 if cmbm["ets"] > 0 else 0
-
-        r_sv = compute(cp, t_sv, ti)
-
-        # NPV for this country
-        lt_sv = ti["project_lifetime"][t_sv]
-        ck_sv = ti["installed_capacity"][t_sv] * 1000
-        cap_sv = ck_sv * ti["capex_per_kw"][t_sv]
-        w_sv   = ti["wacc"][t_sv]
-        dr_sv  = r_sv["dr"]
-        mb_sv  = r_sv["mb"]
-        op_sv  = r_sv["tc"] - r_sv["ac"]
-        npv_sv = -cap_sv + sum(
-            (dr_sv + mb_sv * (1 + mbm_growth_sv)**(y-1) - op_sv) / (1 + w_sv)**y
-            for y in range(1, lt_sv + 1))
-
+        r_sv, npv_sv = compute_country(cmbm, t_sv, ti, st.session_state.p, mbm_growth_sv, ti["project_lifetime"][t_sv])
         sv_rows.append({
             "Country":         country,
+            "ISO3":            cmbm["iso3"],
             "Region":          cmbm["region"],
             "ETS ($/tCO₂e)":   cmbm["ets"],
             "Carbon Tax":      cmbm["ctax"],
             "VCM ($/tCO₂e)":   cmbm["vcm"],
+            "Fuel Mandate":    cmbm["fuel"],
+            "CBAM":            "Yes" if cmbm["cbam"] else "No",
+            "IMO Levy":        "Yes" if cmbm["imo"] else "No",
+            "CORSIA":          "Yes" if cmbm["corsia"] else "No",
+            "CfD":             "Yes" if cmbm.get("cfd",0) else "No",
+            "AMC":             "Yes" if cmbm.get("amc",0) else "No",
             "MBM Rev ($M)":    round(r_sv["mb"]/1e6, 2),
             "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
             "Total Rev ($M)":  round(r_sv["tr"]/1e6, 2),
@@ -1307,35 +1350,143 @@ elif page == "Spatial Viability":
             "R/C Ratio":       round(r_sv["rc"], 2),
             "NPV ($M)":        round(npv_sv/1e6, 1),
             "Viable?":         "✅ Yes" if npv_sv >= 0 else "❌ No",
+            "_mbm_bd":         r_sv["bd"],
         })
 
-    # Map radio label to exact DataFrame column
-    _metric_col_map = {"NPV ($M)": "NPV ($M)", "Net CF ($M)": "Net CF ($M)", "R/C Ratio": "R/C Ratio"}
-    _sort_col = _metric_col_map.get(viab_metric, "NPV ($M)")
+    _sort_col = {"NPV ($M)":"NPV ($M)","Net CF ($M)":"Net CF ($M)","R/C Ratio":"R/C Ratio"}.get(viab_metric,"NPV ($M)")
     df_sv = pd.DataFrame(sv_rows).sort_values(_sort_col, ascending=False).reset_index(drop=True)
 
     # ── KPIs ──
-    viable_count   = (df_sv["Viable?"] == "✅ Yes").sum()
-    total_count    = len(df_sv)
-    best_country   = df_sv.iloc[0]["Country"] if total_count > 0 else "N/A"
-    best_val       = df_sv.iloc[0][viab_metric] if total_count > 0 else 0
-    worst_country  = df_sv.iloc[-1]["Country"] if total_count > 0 else "N/A"
-    worst_val      = df_sv.iloc[-1][viab_metric] if total_count > 0 else 0
+    viable_count  = (df_sv["Viable?"] == "✅ Yes").sum()
+    total_count   = len(df_sv)
+    best_country  = df_sv.iloc[0]["Country"] if total_count > 0 else "N/A"
+    best_val      = df_sv.iloc[0][viab_metric] if total_count > 0 else 0
+    worst_country = df_sv.iloc[-1]["Country"] if total_count > 0 else "N/A"
+    worst_val     = df_sv.iloc[-1][viab_metric] if total_count > 0 else 0
 
     sv_k1, sv_k2, sv_k3, sv_k4 = st.columns(4)
-    sv_k1.markdown(kpi(f"{viable_count}/{total_count}", "Viable Markets",
-                        "NPV ≥ 0"), unsafe_allow_html=True)
-    sv_k2.markdown(kpi(best_country, "Best Market",
-                        f"{viab_metric}: {best_val}"), unsafe_allow_html=True)
-    sv_k3.markdown(kpi(worst_country, "Weakest Market",
-                        f"{viab_metric}: {worst_val}"), unsafe_allow_html=True)
+    sv_k1.markdown(kpi(f"{viable_count}/{total_count}", "Viable Markets", "NPV ≥ 0"), unsafe_allow_html=True)
+    sv_k2.markdown(kpi(best_country, "Best Market", f"{viab_metric}: {best_val}"), unsafe_allow_html=True)
+    sv_k3.markdown(kpi(worst_country, "Weakest Market", f"{viab_metric}: {worst_val}"), unsafe_allow_html=True)
     sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count>0 else "N/A",
                         "Viability Rate", "Across analysed countries"), unsafe_allow_html=True)
 
-    # ── Bar chart — metric by country ──
-    st.markdown('<div class="sec-head">Country Viability Comparison</div>', unsafe_allow_html=True)
+    # ══════════════════════════════════════════════
+    # 🗺️  CHOROPLETH MAP
+    # ══════════════════════════════════════════════
+    st.markdown('<div class="sec-head">🗺️ World Map — Technology Viability</div>', unsafe_allow_html=True)
+
     metric_col = viab_metric
-    colors_sv  = ["#059669" if v >= 0 else "#fca5a5" for v in df_sv[metric_col]]
+    hover_lines = []
+    for _, row in df_sv.iterrows():
+        bd = row["_mbm_bd"]
+        bd_str = " | ".join([f"{k}: ${v/1e6:.1f}M" for k, v in bd.items() if v > 0])
+        hover_lines.append(
+            f"<b>{row['Country']}</b><br>"
+            f"ETS: ${row['ETS ($/tCO₂e)']} | Carbon Tax: ${row['Carbon Tax']} | VCM: ${row['VCM ($/tCO₂e)']}<br>"
+            f"CBAM: {row['CBAM']} | IMO: {row['IMO Levy']} | CORSIA: {row['CORSIA']} | CfD: {row['CfD']}<br>"
+            f"──────────────────────<br>"
+            f"MBM Revenue: ${row['MBM Rev ($M)']}M | Direct Rev: ${row['Direct Rev ($M)']}M<br>"
+            f"NPV: ${row['NPV ($M)']}M | Net CF: ${row['Net CF ($M)']}M | R/C: {row['R/C Ratio']}×<br>"
+            f"MBM Breakdown: {bd_str}<br>"
+            f"Viability: {row['Viable?']}"
+        )
+    df_sv["_hover"] = hover_lines
+
+    fig_map = go.Figure(go.Choropleth(
+        locations=df_sv["ISO3"],
+        z=df_sv[metric_col],
+        text=df_sv["Country"],
+        hovertemplate="%{customdata}<extra></extra>",
+        customdata=df_sv["_hover"],
+        colorscale=map_colorscale,
+        autocolorscale=False,
+        reversescale=False,
+        marker_line_color="#ffffff",
+        marker_line_width=0.7,
+        colorbar=dict(
+            title=dict(text=metric_col, font=dict(size=10, color=FC)),
+            tickfont=dict(size=9, color=FC),
+            bgcolor="rgba(0,0,0,0)",
+            borderwidth=0,
+            thickness=14,
+            len=0.7,
+        ),
+        showscale=True,
+    ))
+
+    # Add annotation dots for countries not shown on choropleth (e.g. small nations)
+    fig_map.update_geos(
+        showcoastlines=True, coastlinecolor="#d1d5db", coastlinewidth=0.5,
+        showland=True, landcolor="#f9fafb",
+        showocean=True, oceancolor="#eff6ff",
+        showlakes=False,
+        showframe=False,
+        projection_type="natural earth",
+        bgcolor="rgba(0,0,0,0)",
+    )
+    fig_map.update_layout(
+        paper_bgcolor=PBG, plot_bgcolor=PBG,
+        geo=dict(bgcolor="rgba(0,0,0,0)"),
+        font=dict(family="Inter", color=FC, size=10),
+        height=460,
+        margin=dict(l=0, r=0, t=30, b=0),
+        title=dict(
+            text=f"<b>{sel_sv}</b> — {metric_col} per Country (darker = higher viability)",
+            font=dict(size=11, color=FC), y=0.98, x=0.01
+        ),
+    )
+    st.plotly_chart(fig_map, use_container_width=True)
+
+    # ══════════════════════════════════════════════
+    # 📊  Excel MBM Matrix — per-country applicability
+    # ══════════════════════════════════════════════
+    if df_excel is not None:
+        st.markdown('<div class="sec-head">📋 Excel MBM Matrix — Technology Applicability from Data</div>', unsafe_allow_html=True)
+        st.caption("D = Direct demand driver | I = Indirect demand driver | Data dari file Excel kamu")
+
+        # Show subset: current selected technology row from Excel
+        tech_name_sv = sel_sv.lower()
+        df_excel_disp = df_excel[["Technology","Type","ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]].copy()
+        df_excel_disp = df_excel_disp.fillna("—")
+
+        # Highlight the row matching current technology (fuzzy)
+        match_rows = df_excel_disp["Technology"].str.lower().str.contains(
+            sel_sv.split("(")[0].strip().lower()[:8], na=False)
+
+        ex1, ex2 = st.columns([2, 1])
+        with ex1:
+            st.dataframe(
+                df_excel_disp.style.apply(
+                    lambda row: ["background-color: #d1fae5; font-weight:600" if match_rows[row.name] else "" for _ in row],
+                    axis=1
+                ).applymap(
+                    lambda v: "color:#059669; font-weight:700" if v == "D"
+                    else ("color:#065f46; font-weight:600" if v == "I" else ""),
+                ),
+                use_container_width=True, height=380
+            )
+        with ex2:
+            if match_rows.any():
+                matched = df_excel_disp[match_rows].iloc[0]
+                st.markdown(f"**Matched:** `{matched['Technology']}`")
+                st.markdown(f"**Type:** {matched['Type']}")
+                active_d = [col for col in ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"] if matched[col] == "D"]
+                active_i = [col for col in ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"] if matched[col] == "I"]
+                st.markdown("**Direct (D):**")
+                for m in active_d:
+                    st.markdown(f"&nbsp;&nbsp;🟢 {m}")
+                st.markdown("**Indirect (I):**")
+                for m in active_i:
+                    st.markdown(f"&nbsp;&nbsp;🔵 {m}")
+            else:
+                st.info("Tidak ada match persis untuk teknologi ini di Excel. Coba pilih teknologi lain.")
+
+    # ══════════════════════════════════════════════
+    # 📊  Per-country bar + MBM decomposition
+    # ══════════════════════════════════════════════
+    st.markdown('<div class="sec-head">Country Viability Ranking</div>', unsafe_allow_html=True)
+    colors_sv = ["#059669" if v >= 0 else "#fca5a5" for v in df_sv[metric_col]]
     fig_sv = go.Figure(go.Bar(
         x=df_sv["Country"], y=df_sv[metric_col],
         marker_color=colors_sv,
@@ -1343,33 +1494,34 @@ elif page == "Spatial Viability":
         textposition="outside", textfont=dict(size=8.5, color=FC),
     ))
     fig_sv.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-    fig_sv.update_layout(**pl(360, mb=80))
+    fig_sv.update_layout(**pl(340, mb=80))
     fig_sv.update_layout(xaxis=dict(tickangle=-45), yaxis_title=viab_metric,
                           title=dict(text=f"{sel_sv} — {viab_metric} by Country",
                                      font=dict(size=11, color=FC), y=0.98))
     st.plotly_chart(fig_sv, use_container_width=True)
 
-    # ── MBM revenue by country and mechanism ──
+    # ── MBM decomposition stacked ──
     st.markdown('<div class="sec-head">MBM Revenue Decomposition by Country</div>', unsafe_allow_html=True)
     countries_list = df_sv["Country"].tolist()
-    mbm_rev_list   = df_sv["MBM Rev ($M)"].tolist()
-    ets_vals, ctax_vals, vcm_vals, other_vals = [], [], [], []
+    ets_vals, ctax_vals, vcm_vals, fuel_vals, other_vals = [], [], [], [], []
     for country in countries_list:
         cmbm = COUNTRY_MBM[country]
-        cp2  = dict(st.session_state.p)
-        cp2["ets"] = cmbm["ets"]; cp2["ctax"] = cmbm["ctax"]; cp2["vcm"] = cmbm["vcm"]
-        r2 = compute(cp2, t_sv, ti)
-        ets_vals.append(r2["bd"].get("ETS", 0)/1e6)
-        ctax_vals.append(r2["bd"].get("Carbon Tax", 0)/1e6)
-        vcm_vals.append(r2["bd"].get("VCM/CDM", 0)/1e6)
-        other_vals.append(max(0, r2["mb"]/1e6 - r2["bd"].get("ETS",0)/1e6
-                               - r2["bd"].get("Carbon Tax",0)/1e6 - r2["bd"].get("VCM/CDM",0)/1e6))
+        r2, _ = compute_country(cmbm, t_sv, ti, st.session_state.p, mbm_growth_sv, ti["project_lifetime"][t_sv])
+        bd2 = r2["bd"]
+        ets_vals.append(bd2.get("ETS", 0)/1e6)
+        ctax_vals.append(bd2.get("Carbon Tax", 0)/1e6)
+        vcm_vals.append(bd2.get("VCM/CDM", 0)/1e6)
+        fuel_vals.append(bd2.get("Fuel Mandate", 0)/1e6)
+        other_vals.append(max(0, r2["mb"]/1e6
+            - bd2.get("ETS",0)/1e6 - bd2.get("Carbon Tax",0)/1e6
+            - bd2.get("VCM/CDM",0)/1e6 - bd2.get("Fuel Mandate",0)/1e6))
 
     fig_mbm_country = go.Figure()
-    fig_mbm_country.add_trace(go.Bar(name="ETS",        x=countries_list, y=ets_vals,  marker_color="#065f46"))
-    fig_mbm_country.add_trace(go.Bar(name="Carbon Tax", x=countries_list, y=ctax_vals, marker_color="#059669"))
-    fig_mbm_country.add_trace(go.Bar(name="VCM/CDM",    x=countries_list, y=vcm_vals,  marker_color="#34d399"))
-    fig_mbm_country.add_trace(go.Bar(name="Other MBMs", x=countries_list, y=other_vals,marker_color="#a7f3d0"))
+    fig_mbm_country.add_trace(go.Bar(name="ETS",          x=countries_list, y=ets_vals,   marker_color="#064e3b"))
+    fig_mbm_country.add_trace(go.Bar(name="Carbon Tax",   x=countries_list, y=ctax_vals,  marker_color="#059669"))
+    fig_mbm_country.add_trace(go.Bar(name="VCM/CDM",      x=countries_list, y=vcm_vals,   marker_color="#34d399"))
+    fig_mbm_country.add_trace(go.Bar(name="Fuel Mandate", x=countries_list, y=fuel_vals,  marker_color="#10b981"))
+    fig_mbm_country.add_trace(go.Bar(name="Other MBMs",   x=countries_list, y=other_vals, marker_color="#a7f3d0"))
     fig_mbm_country.update_layout(**pl(340, mb=80))
     fig_mbm_country.update_layout(barmode="stack", xaxis=dict(tickangle=-45),
                                    yaxis_title="USD Million",
@@ -1377,26 +1529,94 @@ elif page == "Spatial Viability":
                                               font=dict(size=11, color=FC), y=0.98))
     st.plotly_chart(fig_mbm_country, use_container_width=True)
 
-    # ── Region heatmap ──
+    # ── Multi-tech heatmap per country ──
+    st.markdown('<div class="sec-head">All Technologies Viability — Selected Country View</div>', unsafe_allow_html=True)
+    sel_country_heat = st.selectbox("Select Country for Multi-Tech Analysis",
+                                     list(COUNTRY_MBM.keys()), index=0, key="sv_ctry")
+    cmbm_heat = COUNTRY_MBM[sel_country_heat]
+
+    heat_rows = []
+    for i, tech in enumerate(TECHNOLOGIES):
+        r_h, npv_h = compute_country(cmbm_heat, i, ti, st.session_state.p, mbm_growth_sv, ti["project_lifetime"][i])
+        heat_rows.append({
+            "Technology": TECH_SHORT[i],
+            "NPV ($M)": round(npv_h/1e6, 1),
+            "Net CF ($M)": round(r_h["nc"]/1e6, 2),
+            "MBM Rev ($M)": round(r_h["mb"]/1e6, 2),
+            "R/C Ratio": round(r_h["rc"], 2),
+            "Viable?": "✅" if npv_h >= 0 else "❌",
+        })
+    df_heat = pd.DataFrame(heat_rows)
+
+    col_ht1, col_ht2 = st.columns([3, 2])
+    with col_ht1:
+        fig_ht = go.Figure(go.Bar(
+            y=df_heat["Technology"],
+            x=df_heat["NPV ($M)"],
+            orientation="h",
+            marker_color=["#059669" if v >= 0 else "#fca5a5" for v in df_heat["NPV ($M)"]],
+            text=[f"${v:.1f}M" for v in df_heat["NPV ($M)"]],
+            textposition="outside", textfont=dict(size=8.5, color=FC),
+        ))
+        fig_ht.add_vline(x=0, line_color="#e2e8f0", line_width=1.5)
+        fig_ht.update_layout(**pl(420, ml=100, mb=30))
+        fig_ht.update_layout(yaxis=dict(autorange="reversed"),
+                              xaxis_title="NPV ($M)",
+                              title=dict(text=f"All Technologies — NPV in {sel_country_heat}",
+                                         font=dict(size=11, color=FC), y=0.98))
+        st.plotly_chart(fig_ht, use_container_width=True)
+
+    with col_ht2:
+        st.markdown(f"""
+        <div style='background:#f0fdf4;border:1px solid #6ee7b7;border-radius:10px;padding:14px 16px;margin-top:8px;'>
+        <div style='font-size:0.7rem;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;'>
+        MBM Profile — {sel_country_heat}
+        </div>
+        <table style='font-size:0.78rem;width:100%;'>
+        <tr><td style='color:#6b7280;padding:3px 0;'>ETS Price</td><td style='font-weight:600;text-align:right;'>${cmbm_heat['ets']}/tCO₂e</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>Carbon Tax</td><td style='font-weight:600;text-align:right;'>${cmbm_heat['ctax']}/tCO₂e</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>VCM Price</td><td style='font-weight:600;text-align:right;'>${cmbm_heat['vcm']}/tCO₂e</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>Fuel Mandate</td><td style='font-weight:600;text-align:right;'>${cmbm_heat['fuel']}/MWh</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>CBAM</td><td style='font-weight:600;text-align:right;'>{'✅' if cmbm_heat['cbam'] else '❌'}</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>IMO Levy</td><td style='font-weight:600;text-align:right;'>{'✅' if cmbm_heat['imo'] else '❌'}</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>CORSIA</td><td style='font-weight:600;text-align:right;'>{'✅' if cmbm_heat['corsia'] else '❌'}</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>CfD</td><td style='font-weight:600;text-align:right;'>{'✅' if cmbm_heat.get('cfd',0) else '❌'}</td></tr>
+        <tr><td style='color:#6b7280;padding:3px 0;'>AMC</td><td style='font-weight:600;text-align:right;'>{'✅' if cmbm_heat.get('amc',0) else '❌'}</td></tr>
+        </table>
+        <div style='font-size:0.72rem;color:#059669;margin-top:10px;'>
+        Region: {cmbm_heat['region']}
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+        viable_here = df_heat["Viable?"].value_counts().get("✅", 0)
+        st.markdown(f"""
+        <div style='background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-top:10px;'>
+        <div style='font-size:1.4rem;font-weight:800;color:#064e3b;'>{viable_here}/{len(df_heat)}</div>
+        <div style='font-size:0.72rem;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;'>teknologi viable di {sel_country_heat}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Carbon Price Heatmap ──
     st.markdown('<div class="sec-head">Carbon Price Heatmap by Country</div>', unsafe_allow_html=True)
-    fig_heat = go.Figure(go.Heatmap(
-        z=[[COUNTRY_MBM[c]["ets"], COUNTRY_MBM[c]["ctax"], COUNTRY_MBM[c]["vcm"]]
+    fig_heat2 = go.Figure(go.Heatmap(
+        z=[[COUNTRY_MBM[c]["ets"], COUNTRY_MBM[c]["ctax"], COUNTRY_MBM[c]["vcm"], COUNTRY_MBM[c]["fuel"]]
            for c in df_sv["Country"]],
-        x=["ETS ($/tCO₂e)", "Carbon Tax ($/tCO₂e)", "VCM ($/tCO₂e)"],
+        x=["ETS ($/tCO₂e)", "Carbon Tax ($/tCO₂e)", "VCM ($/tCO₂e)", "Fuel Mandate ($/MWh)"],
         y=df_sv["Country"].tolist(),
         colorscale=[[0,"#f9fafb"],[0.01,"#d1fae5"],[1,"#059669"]],
         showscale=True,
-        colorbar=dict(title=dict(text="USD/tCO₂e", font=dict(size=9)), tickfont=dict(size=9)),
+        colorbar=dict(title=dict(text="USD", font=dict(size=9)), tickfont=dict(size=9)),
         hovertemplate="<b>%{y}</b><br>%{x}: <b>$%{z}</b><extra></extra>",
     ))
-    fig_heat.update_layout(**pl(480, ml=120, mr=60, mt=20, mb=30))
-    st.plotly_chart(fig_heat, use_container_width=True)
+    fig_heat2.update_layout(**pl(500, ml=120, mr=60, mt=20, mb=30))
+    st.plotly_chart(fig_heat2, use_container_width=True)
 
     # ── Full data table ──
     st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
-    st.dataframe(df_sv.style.bar(
+    df_sv_display = df_sv.drop(columns=["_mbm_bd","_hover","ISO3"], errors="ignore")
+    st.dataframe(df_sv_display.style.bar(
         subset=["NPV ($M)", "Net CF ($M)", "MBM Rev ($M)"], color="#bbf7d0", align="mid"),
         use_container_width=True, height=600)
     st.download_button("⬇ Download Spatial Viability CSV",
-                       df_sv.to_csv(index=False).encode(),
+                       df_sv_display.to_csv(index=False).encode(),
                        "spatial_viability.csv", "text/csv")
