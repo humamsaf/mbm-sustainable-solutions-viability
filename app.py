@@ -1294,7 +1294,7 @@ elif page == "Spatial Viability":
         geo=dict(
             showframe=False, showcoastlines=True, showland=True, showocean=True, showlakes=False,
             landcolor="#f1f5f9", oceancolor="#e0f2fe", coastlinecolor="#cbd5e1",
-            projection_type="natural earth",
+            projection_type="equirectangular",
             bgcolor="rgba(0,0,0,0)",
         ),
         height=500, margin=dict(l=0, r=0, t=0, b=0),
