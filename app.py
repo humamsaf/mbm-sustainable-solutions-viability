@@ -229,6 +229,7 @@ MBM_MATRIX = [
 MBM_MECH_NAMES = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
 
 # ─────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
 # DEFAULT PARAMETERS per technology (44 techs)
 # ─────────────────────────────────────────────────────────────────
 def make_defaults():
@@ -380,38 +381,6 @@ def compute(prices, t, ti):
               "CBAM":cb,"CORSIA":co,"IMO Levy":im,"VCM/CDM":v,"AMC":am,"Feebate":fb},
     }
 
-def compute_country_excel(country_name, base_prices, t, ti):
-    """Compute using Excel country data — only apply mechanisms present in the Excel data."""
-    cp = dict(base_prices)
-    tech_name = TECHNOLOGIES[t]
-    # Normalize tech name lookup (Excel uses slightly different names for some)
-    tech_lookup = tech_name
-    tech_mbms = cdata.get("techs", {}).get(tech_lookup, {})
-
-    # Build a price dict where only active mechanisms (from Excel) retain their price
-    allowed_mechs = set(tech_mbms.keys())
-    # Map Excel MBM names to price keys
-    mech_map = {
-        "ETS": "ets", "Carbon Tax": "ctax", "Fuel Mandate": "fuel",
-        "CfD": "cfd_strike", "CCfD": "ccfd_strike", "CBAM": "cbam",
-        "CORSIA": "corsia", "IMO Levy": "imo", "VCM": "vcm",
-        "CDM/PACM": "vcm", "AMC": "amc", "Feebate": "feebate",
-    }
-    # Zero out mechanisms not in this country-tech combo
-    for excel_name, price_key in mech_map.items():
-        if excel_name not in allowed_mechs:
-            if price_key in ["ets", "ctax", "cbam", "corsia", "imo", "vcm", "amc", "feebate", "fuel"]:
-                cp[price_key] = 0
-    # Zero CfD/CCfD if not active
-    if "CfD" not in allowed_mechs:
-        cp["cfd_strike"] = cp.get("cfd_ref", 80)  # strike==ref → no payment
-    if "CCfD" not in allowed_mechs:
-        cp["ccfd_strike"] = cp.get("ccfd_ref", 60)
-    return compute(cp, t, ti)
-
-# ─────────────────────────────────────────────────────────────────
-# SESSION STATE
-# ─────────────────────────────────────────────────────────────────
 if "ti"   not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
 if "p"    not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
 if "page" not in st.session_state: st.session_state.page = "Portfolio Overview"
@@ -430,8 +399,8 @@ NAV = [
         ("NPV Analysis",        "💰"),
         ("Tech Calculations",   "🧮"),
     ]),
-    (, [
-        (,   "🌍"),
+    ("Spatial Viability", [
+        
     ]),
 ]
 
@@ -1074,159 +1043,5 @@ elif page == "Tech Calculations":
     lco_per_tco2 = total_annual_cost/co2 if co2 > 0 else 0
     lco1.markdown(kpi(f"${lcoe:.3f}/unit", "LCOE / Unit Cost", "Total cost / annual output"), unsafe_allow_html=True)
     lco2.markdown(kpi(f"${lco_per_tco2:.1f}/tCO₂", "LCOX (Cost/tCO₂)", "Total cost / CO₂ abated"), unsafe_allow_html=True)
-    lco3.markdown(kpi(f"{r_tc['rc''
-    <div class="page-header">
-        <div class="page-header-badgepage-header-titlepage-header-sub""
-    <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:0.78rem;color:#1e3a8a;"", unsafe_allow_html=True)
+    lco3.markdown(kpi(f"{r_tc['rc']:.2f}×", "Revenue / Cost Ratio", "R/C > 1 = viable"), unsafe_allow_html=True)
 
-    ti = st.session_state.ti
-
-    sv1, sv2 = st.columns([2, 2])
-    with sv1:
-        cat_sv = st.selectbox("Filter Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="sv_cat")
-        avail_sv = list(range(N)) if cat_sv=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sv]
-        sel_sv = st.selectbox("Technology to Deploy", [TECHNOLOGIES[i] for i in avail_sv], key="sv_sel")
-        t_sv   = TECHNOLOGIES.index(sel_sv)
-    with sv2:
-        show_regions = st.multiselect("Filter Regions", ALL_REGIONS_EXCEL, default=ALL_REGIONS_EXCEL, key="sv_region")
-        mbm_growth_sv = st.slider("MBM Growth Rate (%/yr)", 0.0, 15.0, 5.0, 0.5, key="sv_mg") / 100
-
-    # Build country viability table from Excel data
-    sv_rows = []
-        if cdata["region"] not in show_regions:
-            continue
-        r_sv = compute_country_excel(country, st.session_state.p, t_sv, ti)
-        lt_sv = ti["project_lifetime"][t_sv]
-        ck_sv = ti["installed_capacity"][t_sv]*1000
-        cap_sv = ck_sv*ti["capex_per_kw"][t_sv]
-        w_sv  = ti["wacc"][t_sv]
-        dr_sv = r_sv["dr"]; mb_sv = r_sv["mb"]; op_sv = r_sv["tc"]-r_sv["ac"]
-        npv_sv = -cap_sv+sum((dr_sv+mb_sv*(1+mbm_growth_sv)**(y-1)-op_sv)/(1+w_sv)**y
-                              for y in range(1, lt_sv+1))
-
-        # Get active MBMs for this country-tech
-        tech_mbms = cdata["techs"].get(sel_sv, {})
-        active_mbms_str = ", ".join([f"{k}({v})" for k,v in tech_mbms.items()]) if tech_mbms else "None"
-
-        sv_rows.append({: country, "ISO3": cdata["iso3"], "Region": cdata["region"],
-            "Active MBMs": active_mbms_str,
-            "MBM Rev ($M)": round(r_sv["mb"]/1e6, 2),
-            "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
-            "Total Rev ($M)": round(r_sv["tr"]/1e6, 2),
-            "Total Cost ($M)": round(r_sv["tc"]/1e6, 2),
-            "Net CF ($M)": round(r_sv["nc"]/1e6, 2),
-            "R/C Ratio": round(r_sv["rc"], 2),
-            "NPV ($M)": round(npv_sv/1e6, 1),
-            "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
-        })
-
-    if not sv_rows:
-        st.warning("No countries found for selected filters.")
-        st.stop()
-
-    df_sv = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
-
-    viable_count = (df_sv["Viable?"] == "✅ Yes").sum()
-    total_count  = len(df_sv)
-    best_country = df_sv.iloc[0][] if total_count > 0 else "N/A"
-    best_val     = df_sv.iloc[0]["NPV ($M)"] if total_count > 0 else 0
-    worst_country= df_sv.iloc[-1][] if total_count > 0 else "N/A"
-
-    sv_k1,sv_k2,sv_k3,sv_k4 = st.columns(4)
-    sv_k1.markdown(kpi(f"{viable_count}/{total_count}", "Viable Markets", "NPV ≥ 0"), unsafe_allow_html=True)
-    sv_k2.markdown(kpi(best_country, "Best Market", f"NPV: ${best_val}M"), unsafe_allow_html=True)
-    sv_k3.markdown(kpi(worst_country, "Weakest Market", f"NPV: ${df_sv.iloc[-1]['NPV ($M)']}M"), unsafe_allow_html=True)
-    sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count else "N/A",
-                        "Viability Rate", "Across countries"), unsafe_allow_html=True)
-
-    # ── WORLD MAP ──────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
-
-    df_map = df_sv[df_sv["lat"] != 0].copy()
-    df_map["color_val"] = df_map["NPV ($M)"]
-    df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(lambda x: max(6, min(24, 6+x/10)))
-    df_map["hover"] = df_map.apply(lambda row:
-        f, axis=1)
-
-    viable_df   = df_map[df_map["Viable?"] == "✅ Yes"]
-    nonviable_df= df_map[df_map["Viable?"] == "❌ No"]
-    no_data_df  = df_map[df_map["Active MBMs"] == "None"]
-
-    fig_map = go.Figure()
-
-    # Non-viable countries
-    if len(nonviable_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=nonviable_df["lat"], lon=nonviable_df["lon"],
-            mode="markers",
-            marker=dict(size=7, color="#fca5a5", symbol="circle",
-                        line=dict(width=0.5, color="#ef4444")),
-            text=nonviable_df["hover"], hoverinfo="text",
-            name="❌ Not Viable",
-        ))
-
-    # No MBM applicable
-    if len(no_data_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=no_data_df["lat"], lon=no_data_df["lon"],
-            mode="markers",
-            marker=dict(size=5, color="#e5e7eb", symbol="circle",
-                        line=dict(width=0.5, color="#9ca3af")),
-            text=no_data_df["hover"], hoverinfo="text",
-            name="⬜ No MBM Applicable",
-        ))
-
-    # Viable countries
-    if len(viable_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=viable_df["lat"], lon=viable_df["lon"],
-            mode="markers",
-            marker=dict(
-                size=viable_df["marker_size"],
-                color=viable_df["color_val"],
-                colorscale=[[0,"#d1fae5"],[0.5,"#059669"],[1,"#064e3b"]],
-                showscale=True,
-                colorbar=dict(title=dict(text="NPV ($M)", font=dict(size=10)), tickfont=dict(size=9)),
-                line=dict(width=0.5, color="#065f46"),
-                symbol="circle",
-            ),
-            text=viable_df["hover"], hoverinfo="text",
-            name="✅ Viable",
-        ))
-
-    fig_map.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        geo=dict(
-            showframe=False, showcoastlines=True, showland=True, showocean=True, showlakes=False,
-            landcolor="#f1f5f9", oceancolor="#e0f2fe", coastlinecolor="#cbd5e1",
-            projection_type="natural earth",
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        height=500, margin=dict(l=0, r=0, t=0, b=0),
-        legend=dict(orientation="h", y=-0.05, font=dict(size=9, family="Inter")),
-        font=dict(family="Inter", size=10),
-    )
-    st.plotly_chart(fig_map, use_container_width=True)
-
-    # ── BAR CHART ──────────────────────────────────────────────────
-    st.markdown('<div class="sec-head#059669" if v >= 0 else "#fca5a5" for v in top40["NPV ($M)"]]
-    fig_sv = go.Figure(go.Bar(
-        x=top40[], y=top40["NPV ($M)"],
-        marker_color=colors_sv,
-        text=[f"{v:.1f}" for v in top40["NPV ($M)"]],
-        textposition="outside", textfont=dict(size=8, color=FC),
-    ))
-    fig_sv.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-    fig_sv.update_layout(**pl(360, mb=90))
-    fig_sv.update_layout(xaxis=dict(tickangle=-45), yaxis_title="NPV ($M)",
-        title=dict(text=f, font=dict(size=11,color=FC), y=0.98))
-    st.plotly_chart(fig_sv, use_container_width=True)
-
-    # ── MBM DECOMPOSITION ──────────────────────────────────────────
-    st.markdown(<div class="sec-headCountry","ISO3","Region","Active MBMs","MBM Rev ($M)","Direct Rev ($M)",
-                    "Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"]
-    st.dataframe(df_sv[display_cols].style.bar(subset=["NPV ($M)","Net CF ($M)","MBM Rev ($M)"],
-                 color="#bbf7d0", align="mid"), use_container_width=True, height=600)
-    st.download_button(,
-                       df_sv[display_cols].to_csv(index=False).encode(),
-                       "spatial_viability.csv", "text/csv")
