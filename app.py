@@ -1155,6 +1155,7 @@ elif page == "Tech Calculations":
 # PAGE: SPATIAL VIABILITY  (Spatial Viability)
 # ═════════════════════════════════════════════════════════════════
 elif page == "Spatial Viability":
+    # Use get_carbon_price_usd(jurisdiction, instrument_type) to apply updated carbon prices in this section
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Spatial Viability · 194 Countries · Excel Data</div>
