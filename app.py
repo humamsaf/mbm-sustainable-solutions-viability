@@ -1320,57 +1320,110 @@ elif page == "Country Viability":
     # ── WORLD MAP ──────────────────────────────────────────────────
     st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
 
-    df_map = df_sv[df_sv["lat"] != 0].copy()
-    df_map["color_val"] = df_map["NPV ($M)"]
-    df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(
-        lambda x: max(5, min(18, 5 + x / 14))
+    # Map layer selector
+    map_layer = st.radio(
+        "Map Layer (color = value, size = magnitude):",
+        ["🟢 MBM Revenue", "🔵 Direct Revenue", "🟡 Total Revenue", "🟣 NPV"],
+        horizontal=True,
+        key="sv_map_layer"
     )
+
+    layer_col_map = {
+        "🟢 MBM Revenue":    ("MBM Rev ($M)",    [[0.0,"#d1fae5"],[0.5,"#059669"],[1.0,"#064e3b"]], "MBM Rev ($M)"),
+        "🔵 Direct Revenue": ("Direct Rev ($M)", [[0.0,"#dbeafe"],[0.5,"#3b82f6"],[1.0,"#1e3a8a"]], "Direct Rev ($M)"),
+        "🟡 Total Revenue":  ("Total Rev ($M)",  [[0.0,"#fef9c3"],[0.5,"#f59e0b"],[1.0,"#92400e"]], "Total Rev ($M)"),
+        "🟣 NPV":            ("NPV ($M)",        [[0.0,"#f3e8ff"],[0.5,"#a855f7"],[1.0,"#4c1d95"]], "NPV ($M)"),
+    }
+    val_col, colorscale, cb_title = layer_col_map[map_layer]
+
+    df_map = df_sv[df_sv["lat"] != 0].copy()
+    df_map["_val"] = df_map[val_col]
+
+    # Clamp marker size to value column (always positive)
+    df_map["marker_size"] = df_map["_val"].clip(lower=0).apply(
+        lambda x: max(5, min(20, 5 + x / 12))
+    )
+
+    # Detailed hover
     df_map["hover"] = df_map.apply(
         lambda row: (
-            f"<b>{row['Country']}</b><br>"
-            f"NPV: ${row['NPV ($M)']}M<br>"
-            f"Carbon Price: {row['Carbon Price']} USD/tCO₂e<br>"
-            f"MBMs: {row['Active MBMs']}<br>"
-            f"{row['Viable?']}"
+            f"<b>{row['Country']}</b>  ({row['Region']})<br>"
+            f"──────────────────<br>"
+            f"💰 MBM Revenue:    <b>${row['MBM Rev ($M)']:.2f}M</b><br>"
+            f"📦 Direct Revenue: <b>${row['Direct Rev ($M)']:.2f}M</b><br>"
+            f"📊 Total Revenue:  <b>${row['Total Rev ($M)']:.2f}M</b><br>"
+            f"📉 Total Cost:     <b>${row['Total Cost ($M)']:.2f}M</b><br>"
+            f"💎 NPV:            <b>${row['NPV ($M)']:.1f}M</b><br>"
+            f"──────────────────<br>"
+            f"{'✅ Viable' if row['Viable?'] == '✅ Yes' else '❌ Not Viable'}"
+            + (f"  |  🌡️ Carbon: ${row['Carbon Price']} USD/tCO₂e" if row['Carbon Price'] != '—' else "")
         ),
         axis=1
     )
 
-    viable_df   = df_map[df_map["Viable?"] == "✅ Yes"]
-    nonviable_df= df_map[df_map["Viable?"] == "❌ No"]
-    no_data_df  = df_map[df_map["Active MBMs"] == "None"]
+    # Segment layers
+    no_mbm_df    = df_map[df_map["Active MBMs"] == "None"]
+    mbm_pos_df   = df_map[(df_map["Active MBMs"] != "None") & (df_map["MBM Rev ($M)"] > 0)]
+    direct_only_df = df_map[(df_map["Active MBMs"] != "None") & (df_map["MBM Rev ($M)"] <= 0) & (df_map["Direct Rev ($M)"] > 0)]
+    no_rev_df    = df_map[(df_map["Active MBMs"] != "None") & (df_map["MBM Rev ($M)"] <= 0) & (df_map["Direct Rev ($M)"] <= 0)]
 
     fig_map = go.Figure()
 
-    if len(nonviable_df) > 0:
+    # Layer 0: No MBM applicable — always grey, smallest
+    if len(no_mbm_df) > 0:
         fig_map.add_trace(go.Scattergeo(
-            lat=nonviable_df["lat"], lon=nonviable_df["lon"], mode="markers",
-            marker=dict(size=7, color="#fca5a5", symbol="circle", line=dict(width=0.5, color="#ef4444")),
-            text=nonviable_df["hover"], hoverinfo="text", name="❌ Not Viable",
+            lat=no_mbm_df["lat"], lon=no_mbm_df["lon"], mode="markers",
+            marker=dict(size=5, color="#e5e7eb", symbol="circle",
+                        line=dict(width=0.4, color="#9ca3af")),
+            text=no_mbm_df["hover"], hoverinfo="text",
+            name="⬜ No MBM Applicable",
         ))
 
-    if len(no_data_df) > 0:
+    # Layer 1: No revenue at all — red outline
+    if len(no_rev_df) > 0:
         fig_map.add_trace(go.Scattergeo(
-            lat=no_data_df["lat"], lon=no_data_df["lon"], mode="markers",
-            marker=dict(size=5, color="#e5e7eb", symbol="circle", line=dict(width=0.5, color="#9ca3af")),
-            text=no_data_df["hover"], hoverinfo="text", name="⬜ No MBM Applicable",
+            lat=no_rev_df["lat"], lon=no_rev_df["lon"], mode="markers",
+            marker=dict(size=6, color="#fee2e2", symbol="circle",
+                        line=dict(width=0.8, color="#ef4444")),
+            text=no_rev_df["hover"], hoverinfo="text",
+            name="🔴 MBM exists, no revenue",
         ))
 
-    if len(viable_df) > 0:
+    # Layer 2: Direct revenue only (no MBM contribution)
+    if len(direct_only_df) > 0:
+        size_dir = direct_only_df["Direct Rev ($M)"].clip(lower=0).apply(
+            lambda x: max(5, min(18, 5 + x / 12))
+        )
         fig_map.add_trace(go.Scattergeo(
-            lat=viable_df["lat"], lon=viable_df["lon"], mode="markers",
+            lat=direct_only_df["lat"], lon=direct_only_df["lon"], mode="markers",
+            marker=dict(size=size_dir, color="#bfdbfe", symbol="circle",
+                        line=dict(width=0.5, color="#3b82f6")),
+            text=direct_only_df["hover"], hoverinfo="text",
+            name="🔵 Direct Revenue Only",
+        ))
+
+    # Layer 3: MBM revenue > 0 — colored by selected layer, with colorscale
+    if len(mbm_pos_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=mbm_pos_df["lat"], lon=mbm_pos_df["lon"], mode="markers",
             marker=dict(
-                size=viable_df["marker_size"],
-                color=viable_df["color_val"],
-                colorscale=[[0.0,"#d1fae5"],[0.5,"#059669"],[1.0,"#064e3b"]],
+                size=mbm_pos_df["marker_size"],
+                color=mbm_pos_df["_val"],
+                colorscale=colorscale,
                 showscale=True,
-                colorbar=dict(title=dict(text="NPV ($M)", font=dict(size=10)),
-                    tickfont=dict(size=9), x=0.98, xanchor="left", y=0.50, yanchor="middle",
-                    len=0.72, lenmode="fraction", thickness=12, thicknessmode="pixels",
-                    outlinewidth=0, ticks="outside"),
-                line=dict(width=0.5, color="#065f46"), symbol="circle",
+                colorbar=dict(
+                    title=dict(text=cb_title, font=dict(size=10)),
+                    tickfont=dict(size=9),
+                    x=0.98, xanchor="left", y=0.50, yanchor="middle",
+                    len=0.72, lenmode="fraction",
+                    thickness=12, thicknessmode="pixels",
+                    outlinewidth=0, ticks="outside",
+                ),
+                line=dict(width=0.5, color="rgba(0,0,0,0.2)"),
+                symbol="circle",
             ),
-            text=viable_df["hover"], hoverinfo="text", name="✅ Viable",
+            text=mbm_pos_df["hover"], hoverinfo="text",
+            name=f"🟢 MBM Revenue > 0  ({len(mbm_pos_df)} countries)",
         ))
 
     fig_map.update_layout(
@@ -1381,12 +1434,27 @@ elif page == "Country Viability":
             showland=True, landcolor="#f8fafc", showocean=True, oceancolor="#eaf4fb",
             showlakes=False, bgcolor="rgba(0,0,0,0)",
             lonaxis=dict(range=[-180, 180]), lataxis=dict(range=[-58, 82])),
-        height=520, margin=dict(l=10, r=55, t=10, b=30),
-        legend=dict(orientation="h", yanchor="top", y=-0.06, xanchor="left", x=0.0,
-            font=dict(size=9, family="Inter"), bgcolor="rgba(255,255,255,0.65)"),
+        height=540, margin=dict(l=10, r=70, t=10, b=40),
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.06,
+            xanchor="left", x=0.0,
+            font=dict(size=9, family="Inter"),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="#e2e8f0", borderwidth=1,
+        ),
         font=dict(family="Inter", size=10),
     )
     st.plotly_chart(fig_map, use_container_width=True)
+
+    # Mini stats row below map
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mbm_countries = (df_sv["MBM Rev ($M)"] > 0).sum()
+    direct_countries = (df_sv["Direct Rev ($M)"] > 0).sum()
+    avg_mbm = df_sv[df_sv["MBM Rev ($M)"] > 0]["MBM Rev ($M)"].mean()
+    mc1.markdown(kpi(f"{mbm_countries}", "Countries w/ MBM Revenue", f"out of {total_count}"), unsafe_allow_html=True)
+    mc2.markdown(kpi(f"{direct_countries}", "Countries w/ Direct Rev", f"out of {total_count}"), unsafe_allow_html=True)
+    mc3.markdown(kpi(f"${avg_mbm:.2f}M", "Avg MBM Rev (where >0)", "per country"), unsafe_allow_html=True)
+    mc4.markdown(kpi(f"${df_sv['MBM Rev ($M)'].sum():.1f}M", "Total MBM Rev (all countries)", "portfolio"), unsafe_allow_html=True)
 
     # ── BAR CHART ──────────────────────────────────────────────────
     st.markdown('<div class="sec-head">Country Viability Ranking (Top 40)</div>', unsafe_allow_html=True)
