@@ -1289,19 +1289,42 @@ elif page == "Spatial Viability":
             name="✅ Viable",
         ))
 
-    fig_map.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        geo=dict(
-            showframe=False, showcoastlines=True, showland=True, showocean=True, showlakes=False,
-            landcolor="#f1f5f9", oceancolor="#e0f2fe", coastlinecolor="#cbd5e1",
-            projection_type="equirectangular",
-            bgcolor="rgba(0,0,0,0)",
-        ),
-        height=500, margin=dict(l=0, r=0, t=0, b=0),
-        legend=dict(orientation="h", y=-0.05, font=dict(size=9, family="Inter")),
-        font=dict(family="Inter", size=10),
-    )
-    st.plotly_chart(fig_map, use_container_width=True)
+   fig_map.update_layout(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    geo=dict(
+        scope="world",
+        projection_type="equirectangular",
+        showframe=False,
+        showcoastlines=True,
+        coastlinecolor="#cbd5e1",
+        coastlinewidth=0.8,
+        showcountries=True,
+        countrycolor="#dbe4ee",
+        countrywidth=0.6,
+        showland=True,
+        landcolor="#f8fafc",
+        showocean=True,
+        oceancolor="#eaf4fb",
+        showlakes=False,
+        bgcolor="rgba(0,0,0,0)",
+        lonaxis=dict(range=[-180, 180]),
+        lataxis=dict(range=[-58, 82]),
+    ),
+    height=520,
+    margin=dict(l=10, r=55, t=10, b=30),
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.06,
+        xanchor="left",
+        x=0.0,
+        font=dict(size=9, family="Inter"),
+        bgcolor="rgba(255,255,255,0.65)"
+    ),
+    font=dict(family="Inter", size=10),
+)
+st.plotly_chart(fig_map, use_container_width=True)
 
     # ── BAR CHART ──────────────────────────────────────────────────
     st.markdown('<div class="sec-head">Country Viability Ranking (Top 40)</div>', unsafe_allow_html=True)
