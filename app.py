@@ -229,6 +229,82 @@ MBM_MATRIX = [
 MBM_MECH_NAMES = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
 
 # ─────────────────────────────────────────────────────────────────
+# COUNTRY DATA FROM EXCEL (194 countries, Country Level sheet)
+# ─────────────────────────────────────────────────────────────────
+COUNTRY_DATA_PATH = Path(__file__).with_name("COUNTRY_DATA_RAW.json")
+with open(COUNTRY_DATA_PATH, "r", encoding="utf-8") as f:
+    COUNTRY_DATA_RAW = json.load(f)
+
+# Country lat/lon for map
+COUNTRY_COORDS = {
+    "Afghanistan": (33.93, 67.71), "Albania": (41.15, 20.17), "Algeria": (28.03, 1.66),
+    "Andorra": (42.55, 1.60), "Angola": (11.20, 17.87), "Antigua and Barbuda": (17.06, -61.80),
+    "Argentina": (-38.42, -63.62), "Armenia": (40.07, 45.04), "Australia": (-25.27, 133.78),
+    "Austria": (47.52, 14.55), "Azerbaijan": (40.14, 47.58), "Bahamas": (25.03, -77.40),
+    "Bahrain": (26.00, 50.55), "Bangladesh": (23.68, 90.36), "Barbados": (13.19, -59.54),
+    "Belarus": (53.71, 27.95), "Belgium": (50.50, 4.47), "Belize": (17.19, -88.50),
+    "Benin": (9.31, 2.32), "Bhutan": (27.51, 90.43), "Bolivia": (-16.29, -63.59),
+    "Bosnia and Herzegovina": (43.92, 17.68), "Botswana": (-22.33, 24.68),
+    "Brazil": (-14.24, -51.93), "Brunei": (4.54, 114.73), "Bulgaria": (42.73, 25.49),
+    "Burkina Faso": (12.36, -1.54), "Burundi": (-3.37, 29.92), "Cambodia": (12.57, 104.99),
+    "Cameroon": (3.85, 11.50), "Canada": (56.13, -106.35), "Cape Verde": (16.54, -23.04),
+    "Central African Republic": (6.61, 20.94), "Chad": (15.45, 18.73), "Chile": (-35.68, -71.54),
+    "China": (35.86, 104.20), "Colombia": (4.57, -74.30), "Comoros": (-11.88, 43.87),
+    "Congo": (-0.23, 15.83), "Costa Rica": (9.75, -83.75), "Croatia": (45.10, 15.20),
+    "Cuba": (21.52, -77.78), "Cyprus": (35.13, 33.43), "Czech Republic": (49.82, 15.47),
+    "DR Congo": (-4.04, 21.76), "Denmark": (56.26, 9.50), "Djibouti": (11.83, 42.59),
+    "Dominica": (15.41, -61.37), "Dominican Republic": (18.74, -70.16), "Ecuador": (-1.83, -78.18),
+    "Egypt": (26.82, 30.80), "El Salvador": (13.79, -88.90), "Equatorial Guinea": (1.65, 10.27),
+    "Eritrea": (15.18, 39.78), "Estonia": (58.60, 25.01), "Eswatini": (-26.52, 31.47),
+    "Ethiopia": (9.15, 40.49), "Fiji": (-17.71, 178.07), "Finland": (61.92, 25.75),
+    "France": (46.23, 2.21), "Gabon": (-0.80, 11.61), "Gambia": (13.44, -15.31),
+    "Georgia": (42.32, 43.36), "Germany": (51.17, 10.45), "Ghana": (7.95, -1.02),
+    "Greece": (39.07, 21.82), "Grenada": (12.12, -61.68), "Guatemala": (15.78, -90.23),
+    "Guinea": (9.95, -9.70), "Guinea-Bissau": (11.80, -15.18), "Guyana": (4.86, -58.93),
+    "Haiti": (18.97, -72.29), "Honduras": (15.20, -86.24), "Hungary": (47.16, 19.50),
+    "Iceland": (64.96, -19.02), "India": (20.59, 78.96), "Indonesia": (-0.79, 113.92),
+    "Iran": (32.43, 53.69), "Iraq": (33.22, 43.68), "Ireland": (53.41, -8.24),
+    "Israel": (31.05, 34.85), "Italy": (41.87, 12.57), "Jamaica": (18.11, -77.30),
+    "Japan": (36.20, 138.25), "Jordan": (30.59, 36.24), "Kazakhstan": (48.02, 66.92),
+    "Kenya": (-0.02, 37.91), "Kiribati": (1.87, -157.36), "Kuwait": (29.31, 47.48),
+    "Kyrgyzstan": (41.20, 74.77), "Laos": (19.86, 102.50), "Latvia": (56.88, 24.60),
+    "Lebanon": (33.85, 35.86), "Lesotho": (-29.61, 28.23), "Liberia": (6.43, -9.43),
+    "Libya": (26.34, 17.23), "Liechtenstein": (47.14, 9.55), "Lithuania": (55.17, 23.88),
+    "Luxembourg": (49.82, 6.13), "Madagascar": (-18.77, 46.87), "Malawi": (-13.25, 34.30),
+    "Malaysia": (4.21, 101.98), "Maldives": (3.20, 73.22), "Mali": (17.57, -3.99),
+    "Malta": (35.94, 14.37), "Marshall Islands": (7.13, 171.18), "Mauritania": (21.01, -10.94),
+    "Mauritius": (-20.35, 57.55), "Mexico": (23.63, -102.55), "Micronesia": (7.43, 150.55),
+    "Moldova": (47.41, 28.37), "Monaco": (43.73, 7.40), "Mongolia": (46.86, 103.85),
+    "Montenegro": (42.71, 19.37), "Morocco": (31.79, -7.09), "Mozambique": (-18.67, 35.53),
+    "Myanmar": (21.92, 95.96), "Namibia": (-22.96, 18.49), "Nauru": (-0.52, 166.93),
+    "Nepal": (28.39, 84.12), "Netherlands": (52.13, 5.29), "New Zealand": (-40.90, 174.89),
+    "Nicaragua": (12.87, -85.21), "Niger": (17.61, 8.08), "Nigeria": (9.08, 8.68),
+    "North Korea": (40.34, 127.51), "North Macedonia": (41.61, 21.75), "Norway": (60.47, 8.47),
+    "Oman": (21.51, 55.92), "Pakistan": (30.38, 69.35), "Palau": (7.51, 134.58),
+    "Panama": (8.54, -80.78), "Papua New Guinea": (-6.31, 143.96), "Paraguay": (-23.44, -58.44),
+    "Peru": (-9.19, -75.02), "Philippines": (12.88, 121.77), "Poland": (51.92, 19.15),
+    "Portugal": (39.40, -8.22), "Qatar": (25.35, 51.18), "Romania": (45.94, 24.97),
+    "Russia": (61.52, 105.32), "Rwanda": (-1.94, 29.87), "Saint Kitts and Nevis": (17.36, -62.78),
+    "Saint Lucia": (13.91, -60.98), "Saint Vincent and the Grenadines": (13.25, -61.20),
+    "Samoa": (-13.76, -172.10), "San Marino": (43.94, 12.46), "Sao Tome and Principe": (0.19, 6.61),
+    "Saudi Arabia": (23.89, 45.08), "Senegal": (14.50, -14.45), "Serbia": (44.02, 21.01),
+    "Seychelles": (-4.68, 55.49), "Sierra Leone": (8.46, -11.78), "Singapore": (1.35, 103.82),
+    "Slovakia": (48.67, 19.70), "Slovenia": (46.15, 14.99), "Solomon Islands": (-9.65, 160.16),
+    "Somalia": (5.15, 46.20), "South Africa": (-30.56, 22.94), "South Korea": (35.91, 127.77),
+    "South Sudan": (6.88, 31.31), "Spain": (40.46, -3.75), "Sri Lanka": (7.87, 80.77),
+    "Sudan": (12.86, 30.22), "Suriname": (3.92, -56.03), "Sweden": (60.13, 18.64),
+    "Switzerland": (46.82, 8.23), "Syria": (34.80, 38.99), "Taiwan": (23.70, 120.96),
+    "Tajikistan": (38.86, 71.28), "Tanzania": (-6.37, 34.89), "Thailand": (15.87, 100.99),
+    "Timor-Leste": (-8.87, 125.73), "Togo": (8.62, 0.82), "Tonga": (-21.18, -175.20),
+    "Trinidad and Tobago": (10.69, -61.22), "Tunisia": (33.89, 9.54), "Turkey": (38.96, 35.24),
+    "Turkmenistan": (38.97, 59.56), "Tuvalu": (-7.11, 177.65), "Uganda": (1.37, 32.29),
+    "Ukraine": (48.38, 31.17), "United Arab Emirates": (23.42, 53.85),
+    "United Kingdom": (55.38, -3.44), "United States": (37.09, -95.71), "Uruguay": (-32.52, -55.77),
+    "Uzbekistan": (41.38, 64.59), "Vanuatu": (-15.38, 166.96), "Venezuela": (6.42, -66.59),
+    "Vietnam": (14.06, 108.28), "Yemen": (15.55, 48.52), "Zambia": (-13.13, 27.85),
+    "Zimbabwe": (-19.02, 29.15),
+}
+
 # ─────────────────────────────────────────────────────────────────
 # DEFAULT PARAMETERS per technology (44 techs)
 # ─────────────────────────────────────────────────────────────────
@@ -381,6 +457,39 @@ def compute(prices, t, ti):
               "CBAM":cb,"CORSIA":co,"IMO Levy":im,"VCM/CDM":v,"AMC":am,"Feebate":fb},
     }
 
+def compute_country_excel(country_name, base_prices, t, ti):
+    """Compute using Excel country data — only apply mechanisms present in the Excel data."""
+    cp = dict(base_prices)
+    cdata = COUNTRY_DATA_RAW.get(country_name, {})
+    tech_name = TECHNOLOGIES[t]
+    # Normalize tech name lookup (Excel uses slightly different names for some)
+    tech_lookup = tech_name
+    tech_mbms = cdata.get("techs", {}).get(tech_lookup, {})
+
+    # Build a price dict where only active mechanisms (from Excel) retain their price
+    allowed_mechs = set(tech_mbms.keys())
+    # Map Excel MBM names to price keys
+    mech_map = {
+        "ETS": "ets", "Carbon Tax": "ctax", "Fuel Mandate": "fuel",
+        "CfD": "cfd_strike", "CCfD": "ccfd_strike", "CBAM": "cbam",
+        "CORSIA": "corsia", "IMO Levy": "imo", "VCM": "vcm",
+        "CDM/PACM": "vcm", "AMC": "amc", "Feebate": "feebate",
+    }
+    # Zero out mechanisms not in this country-tech combo
+    for excel_name, price_key in mech_map.items():
+        if excel_name not in allowed_mechs:
+            if price_key in ["ets", "ctax", "cbam", "corsia", "imo", "vcm", "amc", "feebate", "fuel"]:
+                cp[price_key] = 0
+    # Zero CfD/CCfD if not active
+    if "CfD" not in allowed_mechs:
+        cp["cfd_strike"] = cp.get("cfd_ref", 80)  # strike==ref → no payment
+    if "CCfD" not in allowed_mechs:
+        cp["ccfd_strike"] = cp.get("ccfd_ref", 60)
+    return compute(cp, t, ti)
+
+# ─────────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────────
 if "ti"   not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
 if "p"    not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
 if "page" not in st.session_state: st.session_state.page = "Portfolio Overview"
@@ -398,6 +507,9 @@ NAV = [
         ("MBM Results",         "📈"),
         ("NPV Analysis",        "💰"),
         ("Tech Calculations",   "🧮"),
+    ]),
+    ("Spatial Viability", [
+        ("Spatial Viability",   "🌍"),
     ]),
 ]
 
@@ -1041,3 +1153,200 @@ elif page == "Tech Calculations":
     lco1.markdown(kpi(f"${lcoe:.3f}/unit", "LCOE / Unit Cost", "Total cost / annual output"), unsafe_allow_html=True)
     lco2.markdown(kpi(f"${lco_per_tco2:.1f}/tCO₂", "LCOX (Cost/tCO₂)", "Total cost / CO₂ abated"), unsafe_allow_html=True)
     lco3.markdown(kpi(f"{r_tc['rc']:.2f}×", "Revenue / Cost Ratio", "R/C > 1 = viable"), unsafe_allow_html=True)
+
+# ═════════════════════════════════════════════════════════════════
+# PAGE: SPATIAL VIABILITY  (Spatial Viability)
+# ═════════════════════════════════════════════════════════════════
+elif page == "Spatial Viability":
+    st.markdown('''
+    <div class="page-header">
+        <div class="page-header-badge">Spatial Viability · 194 Countries · Excel Data</div>
+        <div class="page-header-title">🌍 Spatial Viability</div>
+        <div class="page-header-sub">Technology viability across 194 countries — MBM applicability from Country Level sheet (Task___Country_and_Sector.xlsx)</div>
+    </div>''', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:0.78rem;color:#1e3a8a;">
+    📌 <b>Data source:</b> MBM applicability per country and technology is drawn from the <b>Country Level</b> sheet
+    of <b>Task___Country_and_Sector.xlsx</b>. Each country has its own set of applicable MBM mechanisms per technology (D=Direct, I=Indirect).
+    </div>""", unsafe_allow_html=True)
+
+    ti = st.session_state.ti
+    ALL_REGIONS_EXCEL = sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values()))
+
+    sv1, sv2 = st.columns([2, 2])
+    with sv1:
+        cat_sv = st.selectbox("Filter Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="sv_cat")
+        avail_sv = list(range(N)) if cat_sv=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sv]
+        sel_sv = st.selectbox("Technology to Deploy", [TECHNOLOGIES[i] for i in avail_sv], key="sv_sel")
+        t_sv   = TECHNOLOGIES.index(sel_sv)
+    with sv2:
+        show_regions = st.multiselect("Filter Regions", ALL_REGIONS_EXCEL, default=ALL_REGIONS_EXCEL, key="sv_region")
+        mbm_growth_sv = st.slider("MBM Growth Rate (%/yr)", 0.0, 15.0, 5.0, 0.5, key="sv_mg") / 100
+
+    # Build country viability table from Excel data
+    sv_rows = []
+    for country, cdata in COUNTRY_DATA_RAW.items():
+        if cdata["region"] not in show_regions:
+            continue
+        r_sv = compute_country_excel(country, st.session_state.p, t_sv, ti)
+        lt_sv = ti["project_lifetime"][t_sv]
+        ck_sv = ti["installed_capacity"][t_sv]*1000
+        cap_sv = ck_sv*ti["capex_per_kw"][t_sv]
+        w_sv  = ti["wacc"][t_sv]
+        dr_sv = r_sv["dr"]; mb_sv = r_sv["mb"]; op_sv = r_sv["tc"]-r_sv["ac"]
+        npv_sv = -cap_sv+sum((dr_sv+mb_sv*(1+mbm_growth_sv)**(y-1)-op_sv)/(1+w_sv)**y
+                              for y in range(1, lt_sv+1))
+
+        # Get active MBMs for this country-tech
+        tech_mbms = cdata["techs"].get(sel_sv, {})
+        active_mbms_str = ", ".join([f"{k}({v})" for k,v in tech_mbms.items()]) if tech_mbms else "None"
+
+        sv_rows.append({
+            "Country": country, "ISO3": cdata["iso3"], "Region": cdata["region"],
+            "Active MBMs": active_mbms_str,
+            "MBM Rev ($M)": round(r_sv["mb"]/1e6, 2),
+            "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
+            "Total Rev ($M)": round(r_sv["tr"]/1e6, 2),
+            "Total Cost ($M)": round(r_sv["tc"]/1e6, 2),
+            "Net CF ($M)": round(r_sv["nc"]/1e6, 2),
+            "R/C Ratio": round(r_sv["rc"], 2),
+            "NPV ($M)": round(npv_sv/1e6, 1),
+            "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
+            "lat": COUNTRY_COORDS.get(country, (0,0))[0],
+            "lon": COUNTRY_COORDS.get(country, (0,0))[1],
+        })
+
+    if not sv_rows:
+        st.warning("No countries found for selected filters.")
+        st.stop()
+
+    df_sv = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
+
+    viable_count = (df_sv["Viable?"] == "✅ Yes").sum()
+    total_count  = len(df_sv)
+    best_country = df_sv.iloc[0]["Country"] if total_count > 0 else "N/A"
+    best_val     = df_sv.iloc[0]["NPV ($M)"] if total_count > 0 else 0
+    worst_country= df_sv.iloc[-1]["Country"] if total_count > 0 else "N/A"
+
+    sv_k1,sv_k2,sv_k3,sv_k4 = st.columns(4)
+    sv_k1.markdown(kpi(f"{viable_count}/{total_count}", "Viable Markets", "NPV ≥ 0"), unsafe_allow_html=True)
+    sv_k2.markdown(kpi(best_country, "Best Market", f"NPV: ${best_val}M"), unsafe_allow_html=True)
+    sv_k3.markdown(kpi(worst_country, "Weakest Market", f"NPV: ${df_sv.iloc[-1]['NPV ($M)']}M"), unsafe_allow_html=True)
+    sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count else "N/A",
+                        "Viability Rate", "Across countries"), unsafe_allow_html=True)
+
+    # ── WORLD MAP ──────────────────────────────────────────────────
+    st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
+
+    df_map = df_sv[df_sv["lat"] != 0].copy()
+    df_map["color_val"] = df_map["NPV ($M)"]
+    df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(lambda x: max(6, min(24, 6+x/10)))
+    df_map["hover"] = df_map.apply(lambda row:
+        f"<b>{row['Country']}</b><br>NPV: ${row['NPV ($M)']}M<br>MBMs: {row['Active MBMs']}<br>{row['Viable?']}", axis=1)
+
+    viable_df   = df_map[df_map["Viable?"] == "✅ Yes"]
+    nonviable_df= df_map[df_map["Viable?"] == "❌ No"]
+    no_data_df  = df_map[df_map["Active MBMs"] == "None"]
+
+    fig_map = go.Figure()
+
+    # Non-viable countries
+    if len(nonviable_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=nonviable_df["lat"], lon=nonviable_df["lon"],
+            mode="markers",
+            marker=dict(size=7, color="#fca5a5", symbol="circle",
+                        line=dict(width=0.5, color="#ef4444")),
+            text=nonviable_df["hover"], hoverinfo="text",
+            name="❌ Not Viable",
+        ))
+
+    # No MBM applicable
+    if len(no_data_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=no_data_df["lat"], lon=no_data_df["lon"],
+            mode="markers",
+            marker=dict(size=5, color="#e5e7eb", symbol="circle",
+                        line=dict(width=0.5, color="#9ca3af")),
+            text=no_data_df["hover"], hoverinfo="text",
+            name="⬜ No MBM Applicable",
+        ))
+
+    # Viable countries
+    if len(viable_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=viable_df["lat"], lon=viable_df["lon"],
+            mode="markers",
+            marker=dict(
+                size=viable_df["marker_size"],
+                color=viable_df["color_val"],
+                colorscale=[[0,"#d1fae5"],[0.5,"#059669"],[1,"#064e3b"]],
+                showscale=True,
+                colorbar=dict(title=dict(text="NPV ($M)", font=dict(size=10)), tickfont=dict(size=9)),
+                line=dict(width=0.5, color="#065f46"),
+                symbol="circle",
+            ),
+            text=viable_df["hover"], hoverinfo="text",
+            name="✅ Viable",
+        ))
+
+    fig_map.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        geo=dict(
+            showframe=False, showcoastlines=True, showland=True, showocean=True, showlakes=False,
+            landcolor="#f1f5f9", oceancolor="#e0f2fe", coastlinecolor="#cbd5e1",
+            projection_type="natural earth",
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        height=500, margin=dict(l=0, r=0, t=0, b=0),
+        legend=dict(orientation="h", y=-0.05, font=dict(size=9, family="Inter")),
+        font=dict(family="Inter", size=10),
+    )
+    st.plotly_chart(fig_map, use_container_width=True)
+
+    # ── BAR CHART ──────────────────────────────────────────────────
+    st.markdown('<div class="sec-head">Country Viability Ranking (Top 40)</div>', unsafe_allow_html=True)
+    top40 = df_sv.head(40)
+    colors_sv = ["#059669" if v >= 0 else "#fca5a5" for v in top40["NPV ($M)"]]
+    fig_sv = go.Figure(go.Bar(
+        x=top40["Country"], y=top40["NPV ($M)"],
+        marker_color=colors_sv,
+        text=[f"{v:.1f}" for v in top40["NPV ($M)"]],
+        textposition="outside", textfont=dict(size=8, color=FC),
+    ))
+    fig_sv.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
+    fig_sv.update_layout(**pl(360, mb=90))
+    fig_sv.update_layout(xaxis=dict(tickangle=-45), yaxis_title="NPV ($M)",
+        title=dict(text=f"{sel_sv} — NPV by Country (Top 40)", font=dict(size=11,color=FC), y=0.98))
+    st.plotly_chart(fig_sv, use_container_width=True)
+
+    # ── MBM DECOMPOSITION ──────────────────────────────────────────
+    st.markdown('<div class="sec-head">MBM Revenue Decomposition by Country (Top 30)</div>', unsafe_allow_html=True)
+    top30_countries = df_sv.head(30)["Country"].tolist()
+    mbm_breakdown_data = {}
+    for country in top30_countries:
+        r2 = compute_country_excel(country, st.session_state.p, t_sv, ti)
+        mbm_breakdown_data[country] = r2["bd"]
+
+    mbm_keys_plot = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
+    mbm_colors_plot = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0","#d1fae5","#bbf7d0","#ecfdf5"]
+    fig_mbm_c = go.Figure()
+    for mkey, mcol in zip(mbm_keys_plot, mbm_colors_plot):
+        vals = [mbm_breakdown_data[c].get(mkey, 0)/1e6 for c in top30_countries]
+        fig_mbm_c.add_trace(go.Bar(name=mkey, x=top30_countries, y=vals, marker_color=mcol))
+    fig_mbm_c.update_layout(**pl(360, mb=90))
+    fig_mbm_c.update_layout(barmode="stack", xaxis=dict(tickangle=-45), yaxis_title="USD Million",
+        title=dict(text="MBM Revenue Stack by Country", font=dict(size=11,color=FC), y=0.98),
+        legend=dict(orientation="h", y=-0.35, font=dict(size=8)))
+    st.plotly_chart(fig_mbm_c, use_container_width=True)
+
+    # ── DATA TABLE ─────────────────────────────────────────────────
+    st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
+    display_cols = ["Country","ISO3","Region","Active MBMs","MBM Rev ($M)","Direct Rev ($M)",
+                    "Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"]
+    st.dataframe(df_sv[display_cols].style.bar(subset=["NPV ($M)","Net CF ($M)","MBM Rev ($M)"],
+                 color="#bbf7d0", align="mid"), use_container_width=True, height=600)
+    st.download_button("⬇ Download Spatial Viability CSV",
+                       df_sv[display_cols].to_csv(index=False).encode(),
+                       "spatial_viability.csv", "text/csv")
