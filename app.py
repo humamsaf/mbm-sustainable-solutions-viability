@@ -364,52 +364,8 @@ def make_defaults():
 DEFAULTS = make_defaults()
 
 # ─────────────────────────────────────────────────────────────────
-# REAL CARBON PRICES FROM COUNTRY LEVEL DATA (USD/tCO2e)
-# Source: carbon pricing instruments data
+# MBM PRICE DEFAULTS
 # ─────────────────────────────────────────────────────────────────
-REAL_CARBON_PRICES = {
-    # Carbon Taxes
-    "Albania": {"ctax": 13.7}, "Andorra": {"ctax": 32.4}, "Argentina": {"ctax": 5.3},
-    "Chile": {"ctax": 5.0}, "Colombia": {"ctax": 6.5}, "Denmark": {"ctax": 108.4},
-    "Estonia": {"ctax": 27.0}, "Finland": {"ctax": 66.9}, "France": {"ctax": 48.1},
-    "Hungary": {"ctax": 38.8}, "Iceland": {"ctax": 60.1}, "Ireland": {"ctax": 68.5},
-    "Israel": {"ctax": 1.5}, "Japan": {"ctax": 1.9}, "Latvia": {"ctax": 16.2},
-    "Liechtenstein": {"ctax": 136.0}, "Luxembourg": {"ctax": 58.5}, "Mexico": {"ctax": 3.9},
-    "Netherlands": {"ctax": 94.8}, "Norway": {"ctax": 133.9}, "Poland": {"ctax": 0.1},
-    "Portugal": {"ctax": 72.7}, "Singapore": {"ctax": 18.6}, "Slovenia": {"ctax": 33.3},
-    "South Africa": {"ctax": 12.8}, "Spain": {"ctax": 16.2}, "Sweden": {"ctax": 144.6},
-    "Switzerland": {"ctax": 136.0}, "Ukraine": {"ctax": 0.7}, "Uruguay": {"ctax": 158.8},
-    "United Kingdom": {"ctax": 23.2},
-    # ETS prices
-    "Alberta (Canada)": {"ets": 66.2}, "Australia": {"ets": 21.8}, "Austria": {"ets": 48.5},
-    "Belgium": {"ets": 66.2}, "British Columbia": {"ets": 66.2}, "China": {"ets": 11.8},
-    "Canada": {"ets": 66.2}, "California (US)": {"ets": 29.3},
-    "European Union": {"ets": 70.4}, "Germany": {"ets": 48.5},
-    "Indonesia": {"ets": 0.7}, "Kazakhstan": {"ets": 0.9}, "South Korea": {"ets": 6.5},
-    "Massachusetts (US)": {"ets": 9.3}, "Montenegro": {"ets": 25.9},
-    "New Brunswick (Canada)": {"ets": 66.2}, "New Zealand": {"ets": 32.0},
-    "Newfoundland (Canada)": {"ets": 66.2}, "Nova Scotia (Canada)": {"ets": 66.2},
-    "Ontario (Canada)": {"ets": 66.2}, "Quebec (Canada)": {"ets": 41.5},
-    "Regional GHG Initiative": {"ets": 23.3}, "Saitama (Japan)": {"ets": 1.0},
-    "Shanghai": {"ets": 10.8}, "Shenzhen": {"ets": 6.5}, "Tokyo": {"ets": 4.0},
-    "United Kingdom ETS": {"ets": 57.2}, "Washington (US)": {"ets": 50.0},
-}
-
-# Map countries to their best carbon price
-COUNTRY_CARBON_PRICES = {
-    "Albania": 13.7, "Andorra": 32.4, "Argentina": 5.3, "Australia": 21.8,
-    "Austria": 48.5, "Belgium": 66.2, "Canada": 66.2, "Chile": 5.0,
-    "China": 11.8, "Colombia": 6.5, "Denmark": 108.4, "Estonia": 27.0,
-    "Finland": 66.9, "France": 48.1, "Germany": 48.5, "Hungary": 38.8,
-    "Iceland": 60.1, "Indonesia": 0.7, "Ireland": 68.5, "Israel": 1.5,
-    "Japan": 1.9, "Kazakhstan": 0.9, "Latvia": 16.2, "Liechtenstein": 136.0,
-    "Luxembourg": 58.5, "Mexico": 3.9, "Montenegro": 25.9, "Netherlands": 94.8,
-    "New Zealand": 32.0, "Norway": 133.9, "Poland": 0.1, "Portugal": 72.7,
-    "Singapore": 18.6, "Slovenia": 33.3, "South Africa": 12.8, "South Korea": 6.5,
-    "Spain": 16.2, "Sweden": 144.6, "Switzerland": 136.0, "Ukraine": 0.7,
-    "United Kingdom": 57.2, "United States": 29.3, "Uruguay": 158.8,
-}
-
 DEFAULT_PRICES = {
     "ets": 70, "ctax": 50, "fuel": 240, "cfd_strike": 120, "cfd_ref": 80,
     "ccfd_strike": 100, "ccfd_ref": 60,
@@ -534,7 +490,6 @@ def compute_country_excel(country_name, base_prices, t, ti):
 if "ti"   not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
 if "p"    not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
 if "page" not in st.session_state: st.session_state.page = "Portfolio Overview"
-if "selected_country" not in st.session_state: st.session_state.selected_country = None
 
 # ─────────────────────────────────────────────────────────────────
 # SIDEBAR — REVISED NAVIGATION
@@ -542,13 +497,16 @@ if "selected_country" not in st.session_state: st.session_state.selected_country
 NAV = [
     ("Setup & Input", [
         ("Portfolio Overview",  "📊"),
-        ("Setup",              "🔬"),
+        ("Technology Detail",   "🔬"),
+        ("MBM Price Controls",  "⚙️"),
     ]),
     ("Result", [
-        ("Result",             "📈"),
+        ("MBM Results",         "📈"),
+        ("NPV Analysis",        "💰"),
+        ("Tech Calculations",   "🧮"),
     ]),
-    ("Country Viability", [
-        ("Country Viability",  "🌍"),
+    ("Spatial Viability", [
+        ("Spatial Viability",   "🌍"),
     ]),
 ]
 
@@ -691,14 +649,14 @@ if page == "Portfolio Overview":
         </div>''', unsafe_allow_html=True)
 
 # ═════════════════════════════════════════════════════════════════
-# PAGE: SETUP  (Technology Detail + MBM Price Controls combined)
+# PAGE: TECHNOLOGY DETAIL  (Setup & Input)
 # ═════════════════════════════════════════════════════════════════
-elif page == "Setup":
+elif page == "Technology Detail":
     st.markdown('''
     <div class="page-header">
-        <div class="page-header-badge">Setup & Input</div>
-        <div class="page-header-title">🔬 Setup — Technology Detail & MBM Price Controls</div>
-        <div class="page-header-sub">Configure technology parameters and MBM price assumptions</div>
+        <div class="page-header-badge">Setup & Input — Technology Configuration</div>
+        <div class="page-header-title">🔬 Technology Detail</div>
+        <div class="page-header-sub">Configure individual technology parameters and view granular revenue breakdown</div>
     </div>''', unsafe_allow_html=True)
 
     ti = st.session_state.ti
@@ -773,12 +731,16 @@ elif page == "Setup":
         else:            html += f'<span class="chip chip-off">✕ {lbl}</span>'
     st.markdown(html, unsafe_allow_html=True)
 
-    # ── MBM PRICE CONTROLS SECTION ─────────────────────────────────
-    st.markdown("---")
+# ═════════════════════════════════════════════════════════════════
+# PAGE: MBM PRICE CONTROLS  (Setup & Input)
+# ═════════════════════════════════════════════════════════════════
+elif page == "MBM Price Controls":
     st.markdown('''
-    <div style="font-size:1.1rem;font-weight:800;color:#064e3b;margin:24px 0 8px 0;">⚙️ MBM Price Controls</div>
-    <div style="font-size:0.78rem;color:#6b7280;margin-bottom:16px;">Adjust all 11 market-based mechanism parameters — changes propagate instantly to all pages</div>
-    ''', unsafe_allow_html=True)
+    <div class="page-header">
+        <div class="page-header-badge">Setup & Input — Global Parameters</div>
+        <div class="page-header-title">⚙️ MBM Price Controls</div>
+        <div class="page-header-sub">Adjust all 11 market-based mechanism parameters — changes propagate instantly to all pages</div>
+    </div>''', unsafe_allow_html=True)
 
     p = st.session_state.p
 
@@ -834,17 +796,17 @@ elif page == "Setup":
             st.rerun()
 
 # ═════════════════════════════════════════════════════════════════
-# PAGE: RESULT  (MBM Results + NPV combined)
+# PAGE: MBM RESULTS  (Result)
 # ═════════════════════════════════════════════════════════════════
-elif page == "Result":
+elif page == "MBM Results":
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Result</div>
-        <div class="page-header-title">📈 Result</div>
-        <div class="page-header-sub">MBM breakdown, cost vs revenue, active mechanisms, ETS sensitivity, and NPV analysis</div>
+        <div class="page-header-title">📈 MBM Results</div>
+        <div class="page-header-sub">MBM breakdown, cost vs revenue, active mechanisms, and ETS carbon price sensitivity</div>
     </div>''', unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["  MBM Breakdown  ", "  Cost & Revenue  ", "  Active Mechanisms  ", "  ETS Price Sensitivity  ", "  NPV  "])
+    tab1, tab2, tab3, tab4 = st.tabs(["  MBM Breakdown  ", "  Cost & Revenue  ", "  Active Mechanisms  ", "  ETS Price Sensitivity  "])
 
     with tab1:
         st.markdown('<div class="sec-head">MBM Revenue Breakdown — All Mechanisms</div>', unsafe_allow_html=True)
@@ -983,115 +945,10 @@ elif page == "Result":
         col_b.markdown(kpi(fm(curr_tr*1e6), "Total Revenue @ Current ETS", "Portfolio-wide"), unsafe_allow_html=True)
         col_c.markdown(kpi(fm(curr_mb*1e6), "MBM Revenue @ Current ETS", "Portfolio-wide"), unsafe_allow_html=True)
 
-    with tab5:
-        st.markdown("""
-        <div style="background:#f0fdf4;border:1px solid #6ee7b7;border-radius:10px;padding:14px 18px;margin-bottom:18px;">
-        <div style="font-size:0.75rem;font-weight:700;color:#065f46;margin-bottom:6px;">NPV EQUATION WITH MBM (11 mechanisms)</div>
-        <div style="font-size:0.82rem;color:#1f2937;font-family:monospace;">
-        NPV = −CAPEX  +  Σ<sub>t=1..T</sub>  [ (Direct_Rev<sub>t</sub> + MBM_Rev<sub>t</sub> − OPEX<sub>t</sub>) / (1 + WACC)<sup>t</sup> ]
-        </div>
-        <div style="font-size:0.72rem;color:#6b7280;margin-top:6px;">
-        MBM includes: ETS + Carbon Tax + VCM/CDM + CfD + <b>CCfD</b> + CBAM + CORSIA + IMO + AMC + Feebate + Fuel Mandate
-        </div>
-        </div>""", unsafe_allow_html=True)
-
-        nc1, nc2, nc3 = st.columns(3)
-        with nc1:
-            cat_f = st.selectbox("Filter Category", ["All"] + list(dict.fromkeys(TECH_CATEGORIES)), key="npv_cat")
-            avail_npv = list(range(N)) if cat_f=="" or cat_f=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_f]
-            sel_npv  = st.selectbox("Technology", [TECHNOLOGIES[i] for i in avail_npv], key="npv_sel")
-            t_npv    = TECHNOLOGIES.index(sel_npv)
-            discount_rate = st.slider("Discount Rate (WACC override %)", 2.0, 25.0,
-                                       st.session_state.ti["wacc"][t_npv]*100, 0.5, key="npv_dr") / 100
-        with nc2:
-            mbm_growth    = st.slider("Annual MBM Price Growth (%/yr)", -5.0, 20.0, 5.0, 0.5, key="npv_mg") / 100
-            direct_growth = st.slider("Annual Direct Rev Growth (%/yr)", -5.0, 15.0, 2.0, 0.5, key="npv_dg") / 100
-        with nc3:
-            opex_inflation = st.slider("OPEX Inflation (%/yr)", 0.0, 10.0, 2.5, 0.5, key="npv_oi") / 100
-            show_mbm_toggle = st.radio("Include MBM in NPV?", ["Yes — with MBM","No — without MBM"], key="npv_mbm")
-
-        include_mbm = (show_mbm_toggle == "Yes — with MBM")
-        ti_npv = st.session_state.ti; p_npv = st.session_state.p
-        lt_npv = ti_npv["project_lifetime"][t_npv]; ck_npv = ti_npv["installed_capacity"][t_npv]*1000
-        capex_total = ck_npv * ti_npv["capex_per_kw"][t_npv]
-
-        base_result = compute(p_npv, t_npv, ti_npv)
-        base_dr = base_result["dr"]; base_mb = base_result["mb"]
-        base_opex = base_result["tc"] - base_result["ac"]
-
-        years, cfs_mbm, cfs_no_mbm, disc_cfs_mbm, disc_cfs_no_mbm = [], [], [], [], []
-        cumulative_mbm, cumulative_no = [], []
-        cum_m = -capex_total; cum_n = -capex_total
-
-        for yr in range(1, lt_npv+1):
-            dr_t   = base_dr   * (1+direct_growth)**(yr-1)
-            mb_t   = base_mb   * (1+mbm_growth)**(yr-1)
-            opex_t = base_opex * (1+opex_inflation)**(yr-1)
-            cf_mbm = dr_t+mb_t-opex_t; cf_no = dr_t-opex_t
-            dcf_mbm= cf_mbm/(1+discount_rate)**yr; dcf_no = cf_no/(1+discount_rate)**yr
-            years.append(yr)
-            cfs_mbm.append(cf_mbm/1e6); cfs_no_mbm.append(cf_no/1e6)
-            disc_cfs_mbm.append(dcf_mbm/1e6); disc_cfs_no_mbm.append(dcf_no/1e6)
-            cum_m += dcf_mbm; cum_n += dcf_no
-            cumulative_mbm.append(cum_m/1e6); cumulative_no.append(cum_n/1e6)
-
-        npv_with_mbm  = sum(disc_cfs_mbm) - capex_total/1e6
-        npv_no_mbm    = sum(disc_cfs_no_mbm) - capex_total/1e6
-        mbm_npv_delta = npv_with_mbm - npv_no_mbm
-
-        n1,n2,n3,n4 = st.columns(4)
-        npv_disp = npv_with_mbm if include_mbm else npv_no_mbm
-        n1.markdown(kpi(f"${npv_disp:.1f}M", "NPV"+(\" (with MBM)\" if include_mbm else \" (no MBM)\"),
-                        "✅ Positive" if npv_disp>=0 else "❌ Negative"), unsafe_allow_html=True)
-        n2.markdown(kpi(f"${npv_with_mbm:.1f}M", "NPV with MBM", f"CAPEX {capex_total/1e6:.1f}M"), unsafe_allow_html=True)
-        n3.markdown(kpi(f"${npv_no_mbm:.1f}M",   "NPV without MBM", f"Δ ${mbm_npv_delta:.1f}M"), unsafe_allow_html=True)
-        n4.markdown(kpi(f"${mbm_npv_delta:.1f}M","MBM NPV Uplift", "Value added by MBM"), unsafe_allow_html=True)
-
-        fn1, fn2 = st.columns(2)
-        with fn1:
-            st.markdown('<div class="sec-head">Annual Cash Flows</div>', unsafe_allow_html=True)
-            fig_cf = go.Figure()
-            fig_cf.add_trace(go.Bar(name="CF (with MBM)", x=years, y=cfs_mbm, marker_color="#059669", opacity=0.85))
-            fig_cf.add_trace(go.Bar(name="CF (no MBM)",   x=years, y=cfs_no_mbm, marker_color="#a7f3d0"))
-            fig_cf.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-            fig_cf.update_layout(**pl(340))
-            fig_cf.update_layout(barmode="overlay", xaxis_title="Year", yaxis_title="USD Million")
-            st.plotly_chart(fig_cf, use_container_width=True)
-        with fn2:
-            st.markdown('<div class="sec-head">Cumulative NPV (incl. CAPEX)</div>', unsafe_allow_html=True)
-            fig_cum = go.Figure()
-            fig_cum.add_trace(go.Scatter(name="Cumul. NPV (with MBM)", x=years, y=cumulative_mbm,
-                line=dict(color="#059669",width=2.5), fill="tozeroy", fillcolor="rgba(5,150,105,0.08)"))
-            fig_cum.add_trace(go.Scatter(name="Cumul. NPV (no MBM)", x=years, y=cumulative_no,
-                line=dict(color="#6ee7b7",width=2,dash="dot")))
-            fig_cum.add_hline(y=0, line_color="#dc2626", line_width=1.5, line_dash="dash",
-                annotation_text="Break-even", annotation_font_color="#dc2626", annotation_font_size=9)
-            fig_cum.update_layout(**pl(340))
-            fig_cum.update_layout(xaxis_title="Year", yaxis_title="USD Million (NPV)")
-            st.plotly_chart(fig_cum, use_container_width=True)
-
-        st.markdown('<div class="sec-head">Portfolio NPV Summary — All 44 Technologies</div>', unsafe_allow_html=True)
-        npv_rows = []
-        for i in range(N):
-            lt_i = ti_npv["project_lifetime"][i]; ck_i = ti_npv["installed_capacity"][i]*1000
-            cap_i = ck_i*ti_npv["capex_per_kw"][i]; dr_i = AR[i]["dr"]; mb_i = AR[i]["mb"]
-            op_i  = AR[i]["tc"]-AR[i]["ac"]; w_i = ti_npv["wacc"][i]
-            npv_m = -cap_i+sum((dr_i*(1+direct_growth)**(y-1)+mb_i*(1+mbm_growth)**(y-1)
-                                -op_i*(1+opex_inflation)**(y-1))/(1+w_i)**y for y in range(1,lt_i+1))
-            npv_n = -cap_i+sum((dr_i*(1+direct_growth)**(y-1)
-                                -op_i*(1+opex_inflation)**(y-1))/(1+w_i)**y for y in range(1,lt_i+1))
-            npv_rows.append({
-                "Technology": TECHNOLOGIES[i], "Category": TECH_CATEGORIES[i],
-                "CAPEX ($M)": round(cap_i/1e6,1), "Lifetime (yr)": lt_i, "WACC (%)": round(w_i*100,1),
-                "NPV with MBM ($M)": round(npv_m/1e6,1), "NPV no MBM ($M)": round(npv_n/1e6,1),
-                "MBM Uplift ($M)": round((npv_m-npv_n)/1e6,1),
-                "Viable (MBM)?": "✅ Yes" if npv_m>=0 else "❌ No",
-                "Viable (no MBM)?": "✅ Yes" if npv_n>=0 else "❌ No",
-            })
-        df_npv = pd.DataFrame(npv_rows)
-        st.dataframe(df_npv.style.bar(subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"],
-                     color="#bbf7d0", align="mid"), use_container_width=True, height=500)
-        st.download_button("⬇ Download NPV CSV", df_npv.to_csv(index=False).encode(), "npv_analysis.csv", "text/csv")
+# ═════════════════════════════════════════════════════════════════
+# PAGE: NPV ANALYSIS  (Result)
+# ═════════════════════════════════════════════════════════════════
+elif page == "NPV Analysis":
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Result — Investment Valuation</div>
