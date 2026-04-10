@@ -1224,18 +1224,20 @@ elif page == "Country Viability":
     ti = st.session_state.ti
     ALL_REGIONS_EXCEL = sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values()))
 
-    sv1, sv2, sv3 = st.columns([2, 2, 2])
+    sv1, sv2, sv3, sv4 = st.columns([2, 2, 2, 2])
     with sv1:
         cat_sv = st.selectbox("Filter Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="sv_cat")
         avail_sv = list(range(N)) if cat_sv=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sv]
         sel_sv = st.selectbox("Technology to Deploy", [TECHNOLOGIES[i] for i in avail_sv], key="sv_sel")
         t_sv   = TECHNOLOGIES.index(sel_sv)
     with sv2:
-        show_regions = st.multiselect("Filter Regions", ALL_REGIONS_EXCEL, default=ALL_REGIONS_EXCEL, key="sv_region")
+        region_filter = st.selectbox("Filter Region", ["All Regions"] + ALL_REGIONS_EXCEL, key="sv_region")
+        show_regions = ALL_REGIONS_EXCEL if region_filter == "All Regions" else [region_filter]
         mbm_growth_sv = st.slider("MBM Growth Rate (%/yr)", 0.0, 15.0, 5.0, 0.5, key="sv_mg") / 100
     with sv3:
         all_countries = sorted(COUNTRY_DATA_RAW.keys())
-        country_filter = st.selectbox("🔍 Filter / Select Country", ["All Countries"] + all_countries, key="sv_country_filter")
+        country_filter = st.selectbox("Filter Country", ["All Countries"] + all_countries, key="sv_country_filter")
+    with sv4:
         use_real_carbon_prices = st.checkbox("Use real country carbon prices", value=True, key="sv_real_prices")
 
     # Build country viability table using real carbon prices per country
