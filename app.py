@@ -1234,181 +1234,135 @@ elif page == "Spatial Viability":
     sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count else "N/A",
                         "Viability Rate", "Across countries"), unsafe_allow_html=True)
 
-# ── WORLD MAP ──────────────────────────────────────────────────
-st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
+    # ── WORLD MAP ──────────────────────────────────────────────────
+    st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
 
-df_map = df_sv[df_sv["lat"] != 0].copy()
-df_map["color_val"] = df_map["NPV ($M)"]
-df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(
-    lambda x: max(5, min(18, 5 + x / 14))
-)
-df_map["hover"] = df_map.apply(
-    lambda row: (
-        f"<b>{row['Country']}</b><br>"
-        f"NPV: ${row['NPV ($M)']}M<br>"
-        f"MBMs: {row['Active MBMs']}<br>"
-        f"{row['Viable?']}"
-    ),
-    axis=1
-)
-
-viable_df = df_map[df_map["Viable?"] == "✅ Yes"]
-nonviable_df = df_map[df_map["Viable?"] == "❌ No"]
-no_data_df = df_map[df_map["Active MBMs"] == "None"]
-
-fig_map = go.Figure()
-
-# Non-viable countries
-if len(nonviable_df) > 0:
-    fig_map.add_trace(go.Scattergeo(
-        lat=nonviable_df["lat"],
-        lon=nonviable_df["lon"],
-        mode="markers",
-        marker=dict(
-            size=7,
-            color="#fca5a5",
-            symbol="circle",
-            line=dict(width=0.5, color="#ef4444")
+    df_map = df_sv[df_sv["lat"] != 0].copy()
+    df_map["color_val"] = df_map["NPV ($M)"]
+    df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(
+        lambda x: max(5, min(18, 5 + x / 14))
+    )
+    df_map["hover"] = df_map.apply(
+        lambda row: (
+            f"<b>{row['Country']}</b><br>"
+            f"NPV: ${row['NPV ($M)']}M<br>"
+            f"MBMs: {row['Active MBMs']}<br>"
+            f"{row['Viable?']}"
         ),
-        text=nonviable_df["hover"],
-        hoverinfo="text",
-        name="❌ Not Viable",
-    ))
+        axis=1
+    )
 
-# No MBM applicable
-if len(no_data_df) > 0:
-    fig_map.add_trace(go.Scattergeo(
-        lat=no_data_df["lat"],
-        lon=no_data_df["lon"],
-        mode="markers",
-        marker=dict(
-            size=5,
-            color="#e5e7eb",
-            symbol="circle",
-            line=dict(width=0.5, color="#9ca3af")
-        ),
-        text=no_data_df["hover"],
-        hoverinfo="text",
-        name="⬜ No MBM Applicable",
-    ))
+    viable_df = df_map[df_map["Viable?"] == "✅ Yes"]
+    nonviable_df = df_map[df_map["Viable?"] == "❌ No"]
+    no_data_df = df_map[df_map["Active MBMs"] == "None"]
 
-# Viable countries
-if len(viable_df) > 0:
-    fig_map.add_trace(go.Scattergeo(
-        lat=viable_df["lat"],
-        lon=viable_df["lon"],
-        mode="markers",
-        marker=dict(
-            size=viable_df["marker_size"],
-            color=viable_df["color_val"],
-            colorscale=[
-                [0.0, "#d1fae5"],
-                [0.5, "#059669"],
-                [1.0, "#064e3b"]
-            ],
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="NPV ($M)", font=dict(size=10)),
-                tickfont=dict(size=9),
-                x=0.98,
-                xanchor="left",
-                y=0.50,
-                yanchor="middle",
-                len=0.72,
-                lenmode="fraction",
-                thickness=12,
-                thicknessmode="pixels",
-                outlinewidth=0,
-                ticks="outside"
+    fig_map = go.Figure()
+
+    # Non-viable countries
+    if len(nonviable_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=nonviable_df["lat"],
+            lon=nonviable_df["lon"],
+            mode="markers",
+            marker=dict(
+                size=7,
+                color="#fca5a5",
+                symbol="circle",
+                line=dict(width=0.5, color="#ef4444")
             ),
-            line=dict(width=0.5, color="#065f46"),
-            symbol="circle",
+            text=nonviable_df["hover"],
+            hoverinfo="text",
+            name="❌ Not Viable",
+        ))
+
+    # No MBM applicable
+    if len(no_data_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=no_data_df["lat"],
+            lon=no_data_df["lon"],
+            mode="markers",
+            marker=dict(
+                size=5,
+                color="#e5e7eb",
+                symbol="circle",
+                line=dict(width=0.5, color="#9ca3af")
+            ),
+            text=no_data_df["hover"],
+            hoverinfo="text",
+            name="⬜ No MBM Applicable",
+        ))
+
+    # Viable countries
+    if len(viable_df) > 0:
+        fig_map.add_trace(go.Scattergeo(
+            lat=viable_df["lat"],
+            lon=viable_df["lon"],
+            mode="markers",
+            marker=dict(
+                size=viable_df["marker_size"],
+                color=viable_df["color_val"],
+                colorscale=[
+                    [0.0, "#d1fae5"],
+                    [0.5, "#059669"],
+                    [1.0, "#064e3b"]
+                ],
+                showscale=True,
+                colorbar=dict(
+                    title=dict(text="NPV ($M)", font=dict(size=10)),
+                    tickfont=dict(size=9),
+                    x=0.98,
+                    xanchor="left",
+                    y=0.50,
+                    yanchor="middle",
+                    len=0.72,
+                    lenmode="fraction",
+                    thickness=12,
+                    thicknessmode="pixels",
+                    outlinewidth=0,
+                    ticks="outside"
+                ),
+                line=dict(width=0.5, color="#065f46"),
+                symbol="circle",
+            ),
+            text=viable_df["hover"],
+            hoverinfo="text",
+            name="✅ Viable",
+        ))
+
+    fig_map.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        geo=dict(
+            scope="world",
+            projection_type="equirectangular",
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="#cbd5e1",
+            coastlinewidth=0.8,
+            showcountries=True,
+            countrycolor="#dbe4ee",
+            countrywidth=0.6,
+            showland=True,
+            landcolor="#f8fafc",
+            showocean=True,
+            oceancolor="#eaf4fb",
+            showlakes=False,
+            bgcolor="rgba(0,0,0,0)",
+            lonaxis=dict(range=[-180, 180]),
+            lataxis=dict(range=[-58, 82]),
         ),
-        text=viable_df["hover"],
-        hoverinfo="text",
-        name="✅ Viable",
-    ))
+        height=520,
+        margin=dict(l=10, r=55, t=10, b=30),
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.06,
+            xanchor="left",
+            x=0.0,
+            font=dict(size=9, family="Inter"),
+            bgcolor="rgba(255,255,255,0.65)"
+        ),
+        font=dict(family="Inter", size=10),
+    )
 
-fig_map.update_layout(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    geo=dict(
-        scope="world",
-        projection_type="equirectangular",
-        showframe=False,
-        showcoastlines=True,
-        coastlinecolor="#cbd5e1",
-        coastlinewidth=0.8,
-        showcountries=True,
-        countrycolor="#dbe4ee",
-        countrywidth=0.6,
-        showland=True,
-        landcolor="#f8fafc",
-        showocean=True,
-        oceancolor="#eaf4fb",
-        showlakes=False,
-        bgcolor="rgba(0,0,0,0)",
-        lonaxis=dict(range=[-180, 180]),
-        lataxis=dict(range=[-58, 82]),
-    ),
-    height=520,
-    margin=dict(l=10, r=55, t=10, b=30),
-    legend=dict(
-        orientation="h",
-        yanchor="top",
-        y=-0.06,
-        xanchor="left",
-        x=0.0,
-        font=dict(size=9, family="Inter"),
-        bgcolor="rgba(255,255,255,0.65)"
-    ),
-    font=dict(family="Inter", size=10),
-)
-
-st.plotly_chart(fig_map, use_container_width=True)
-
-    # ── BAR CHART ──────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">Country Viability Ranking (Top 40)</div>', unsafe_allow_html=True)
-    top40 = df_sv.head(40)
-    colors_sv = ["#059669" if v >= 0 else "#fca5a5" for v in top40["NPV ($M)"]]
-    fig_sv = go.Figure(go.Bar(
-        x=top40["Country"], y=top40["NPV ($M)"],
-        marker_color=colors_sv,
-        text=[f"{v:.1f}" for v in top40["NPV ($M)"]],
-        textposition="outside", textfont=dict(size=8, color=FC),
-    ))
-    fig_sv.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-    fig_sv.update_layout(**pl(360, mb=90))
-    fig_sv.update_layout(xaxis=dict(tickangle=-45), yaxis_title="NPV ($M)",
-        title=dict(text=f"{sel_sv} — NPV by Country (Top 40)", font=dict(size=11,color=FC), y=0.98))
-    st.plotly_chart(fig_sv, use_container_width=True)
-
-    # ── MBM DECOMPOSITION ──────────────────────────────────────────
-    st.markdown('<div class="sec-head">MBM Revenue Decomposition by Country (Top 30)</div>', unsafe_allow_html=True)
-    top30_countries = df_sv.head(30)["Country"].tolist()
-    mbm_breakdown_data = {}
-    for country in top30_countries:
-        r2 = compute_country_excel(country, st.session_state.p, t_sv, ti)
-        mbm_breakdown_data[country] = r2["bd"]
-
-    mbm_keys_plot = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
-    mbm_colors_plot = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0","#d1fae5","#bbf7d0","#ecfdf5"]
-    fig_mbm_c = go.Figure()
-    for mkey, mcol in zip(mbm_keys_plot, mbm_colors_plot):
-        vals = [mbm_breakdown_data[c].get(mkey, 0)/1e6 for c in top30_countries]
-        fig_mbm_c.add_trace(go.Bar(name=mkey, x=top30_countries, y=vals, marker_color=mcol))
-    fig_mbm_c.update_layout(**pl(360, mb=90))
-    fig_mbm_c.update_layout(barmode="stack", xaxis=dict(tickangle=-45), yaxis_title="USD Million",
-        title=dict(text="MBM Revenue Stack by Country", font=dict(size=11,color=FC), y=0.98),
-        legend=dict(orientation="h", y=-0.35, font=dict(size=8)))
-    st.plotly_chart(fig_mbm_c, use_container_width=True)
-
-    # ── DATA TABLE ─────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
-    display_cols = ["Country","ISO3","Region","Active MBMs","MBM Rev ($M)","Direct Rev ($M)",
-                    "Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"]
-    st.dataframe(df_sv[display_cols].style.bar(subset=["NPV ($M)","Net CF ($M)","MBM Rev ($M)"],
-                 color="#bbf7d0", align="mid"), use_container_width=True, height=600)
-    st.download_button("⬇ Download Spatial Viability CSV",
-                       df_sv[display_cols].to_csv(index=False).encode(),
-                       "spatial_viability.csv", "text/csv")
+    st.plotly_chart(fig_map, use_container_width=True)
