@@ -1234,62 +1234,102 @@ elif page == "Spatial Viability":
     sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count else "N/A",
                         "Viability Rate", "Across countries"), unsafe_allow_html=True)
 
-    # ── WORLD MAP ──────────────────────────────────────────────────
-    st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
+# ── WORLD MAP ──────────────────────────────────────────────────
+st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
 
-    df_map = df_sv[df_sv["lat"] != 0].copy()
-    df_map["color_val"] = df_map["NPV ($M)"]
-    df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(lambda x: max(6, min(24, 6+x/10)))
-    df_map["hover"] = df_map.apply(lambda row:
-        f"<b>{row['Country']}</b><br>NPV: ${row['NPV ($M)']}M<br>MBMs: {row['Active MBMs']}<br>{row['Viable?']}", axis=1)
+df_map = df_sv[df_sv["lat"] != 0].copy()
+df_map["color_val"] = df_map["NPV ($M)"]
+df_map["marker_size"] = df_map["NPV ($M)"].clip(lower=0).apply(
+    lambda x: max(5, min(18, 5 + x / 14))
+)
+df_map["hover"] = df_map.apply(
+    lambda row: (
+        f"<b>{row['Country']}</b><br>"
+        f"NPV: ${row['NPV ($M)']}M<br>"
+        f"MBMs: {row['Active MBMs']}<br>"
+        f"{row['Viable?']}"
+    ),
+    axis=1
+)
 
-    viable_df   = df_map[df_map["Viable?"] == "✅ Yes"]
-    nonviable_df= df_map[df_map["Viable?"] == "❌ No"]
-    no_data_df  = df_map[df_map["Active MBMs"] == "None"]
+viable_df = df_map[df_map["Viable?"] == "✅ Yes"]
+nonviable_df = df_map[df_map["Viable?"] == "❌ No"]
+no_data_df = df_map[df_map["Active MBMs"] == "None"]
 
-    fig_map = go.Figure()
+fig_map = go.Figure()
 
-    # Non-viable countries
-    if len(nonviable_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=nonviable_df["lat"], lon=nonviable_df["lon"],
-            mode="markers",
-            marker=dict(size=7, color="#fca5a5", symbol="circle",
-                        line=dict(width=0.5, color="#ef4444")),
-            text=nonviable_df["hover"], hoverinfo="text",
-            name="❌ Not Viable",
-        ))
+# Non-viable countries
+if len(nonviable_df) > 0:
+    fig_map.add_trace(go.Scattergeo(
+        lat=nonviable_df["lat"],
+        lon=nonviable_df["lon"],
+        mode="markers",
+        marker=dict(
+            size=7,
+            color="#fca5a5",
+            symbol="circle",
+            line=dict(width=0.5, color="#ef4444")
+        ),
+        text=nonviable_df["hover"],
+        hoverinfo="text",
+        name="❌ Not Viable",
+    ))
 
-    # No MBM applicable
-    if len(no_data_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=no_data_df["lat"], lon=no_data_df["lon"],
-            mode="markers",
-            marker=dict(size=5, color="#e5e7eb", symbol="circle",
-                        line=dict(width=0.5, color="#9ca3af")),
-            text=no_data_df["hover"], hoverinfo="text",
-            name="⬜ No MBM Applicable",
-        ))
+# No MBM applicable
+if len(no_data_df) > 0:
+    fig_map.add_trace(go.Scattergeo(
+        lat=no_data_df["lat"],
+        lon=no_data_df["lon"],
+        mode="markers",
+        marker=dict(
+            size=5,
+            color="#e5e7eb",
+            symbol="circle",
+            line=dict(width=0.5, color="#9ca3af")
+        ),
+        text=no_data_df["hover"],
+        hoverinfo="text",
+        name="⬜ No MBM Applicable",
+    ))
 
-    # Viable countries
-    if len(viable_df) > 0:
-        fig_map.add_trace(go.Scattergeo(
-            lat=viable_df["lat"], lon=viable_df["lon"],
-            mode="markers",
-            marker=dict(
-                size=viable_df["marker_size"],
-                color=viable_df["color_val"],
-                colorscale=[[0,"#d1fae5"],[0.5,"#059669"],[1,"#064e3b"]],
-                showscale=True,
-                colorbar=dict(title=dict(text="NPV ($M)", font=dict(size=10)), tickfont=dict(size=9)),
-                line=dict(width=0.5, color="#065f46"),
-                symbol="circle",
+# Viable countries
+if len(viable_df) > 0:
+    fig_map.add_trace(go.Scattergeo(
+        lat=viable_df["lat"],
+        lon=viable_df["lon"],
+        mode="markers",
+        marker=dict(
+            size=viable_df["marker_size"],
+            color=viable_df["color_val"],
+            colorscale=[
+                [0.0, "#d1fae5"],
+                [0.5, "#059669"],
+                [1.0, "#064e3b"]
+            ],
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="NPV ($M)", font=dict(size=10)),
+                tickfont=dict(size=9),
+                x=0.98,
+                xanchor="left",
+                y=0.50,
+                yanchor="middle",
+                len=0.72,
+                lenmode="fraction",
+                thickness=12,
+                thicknessmode="pixels",
+                outlinewidth=0,
+                ticks="outside"
             ),
-            text=viable_df["hover"], hoverinfo="text",
-            name="✅ Viable",
-        ))
+            line=dict(width=0.5, color="#065f46"),
+            symbol="circle",
+        ),
+        text=viable_df["hover"],
+        hoverinfo="text",
+        name="✅ Viable",
+    ))
 
-   fig_map.update_layout(
+fig_map.update_layout(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     geo=dict(
@@ -1324,6 +1364,7 @@ elif page == "Spatial Viability":
     ),
     font=dict(family="Inter", size=10),
 )
+
 st.plotly_chart(fig_map, use_container_width=True)
 
     # ── BAR CHART ──────────────────────────────────────────────────
