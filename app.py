@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import json
+from pathlib import Path
 
 st.set_page_config(
     page_title="MBM Revenue Model v2",
@@ -227,6 +228,71 @@ MBM_MATRIX = [
 ]
 
 MBM_MECH_NAMES = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
+
+TECH_NAME_MAP = {
+    "Offshore Wind (fixed foundation)": "Offshore Wind fixed foundation",
+    "Concentrated Solar Power (CSP)": "Concentrated Solar Power CSP",
+    "Ocean / Tidal / Wave Energy": "Ocean Tidal Wave Energy",
+    "Small Modular Reactors (SMR)": "Small Modular Reactors SMR",
+    "Enhanced Geothermal Systems (EGS)": "Enhanced Geothermal Systems EGS",
+    "Green Hydrogen (electrolysis)": "Green Hydrogen electrolysis",
+    "Battery Storage (grid-scale)": "Battery Storage grid-scale",
+    "Long-Duration Energy Storage (LDES)": "Long-Duration Energy Storage LDES",
+    "Smart Grid & Grid Modernization": "Smart Grid Grid Modernization",
+    "Virtual Power Plants (VPP)": "Virtual Power Plants VPP",
+    "Low-carbon Steel & Cement": "Low-carbon Steel Cement",
+    "Electric Arc Furnace (EAF)": "Electric Arc Furnace EAF",
+    "Green Fertilizer (low-carbon NH3)": "Green Fertilizer low-carbon NH3",
+    "Industrial Heat Pumps (high-temp)": "Industrial Heat Pumps high-temp",
+    "Sustainable Aviation Fuel (SAF)": "Sustainable Aviation Fuel SAF",
+    "HVO (Hydrotreated Vegetable Oil)": "HVO Hydrotreated Vegetable Oil",
+    "E-kerosene (aviation e-fuel)": "E-kerosene aviation e-fuel",
+    "E-Ammonia (maritime fuel)": "E-Ammonia maritime fuel",
+    "E-Methanol (maritime fuel)": "E-Methanol maritime fuel",
+    "E-diesel / E-methanol (road & ship)": "E-diesel road ship",
+    "Biogas (anaerobic digestion)": "Biogas anaerobic digestion",
+    "Biomethane (upgraded to grid)": "Biomethane upgraded to grid",
+    "Electric Vehicles (EVs)": "Electric Vehicles EVs",
+    "Hydrogen Fuel Cells (heavy-duty)": "Hydrogen Fuel Cells",
+    "Electric Aviation (eVTOL/short-haul)": "Electric Aviation eVTOLshort-haul",
+    "Carbon Capture & Storage (CCUS)": "Carbon Capture Storage CCUS",
+    "BECCS (Bioenergy + CCS)": "BECCS Bioenergy CCS",
+    "Direct Air Capture (DAC)": "Direct Air Capture DAC",
+    "Waste-to-Energy + CCS": "Waste-to-Energy CCS",
+    "Reforestation / REDD+ / NBS": "Reforestation REDD NBS",
+    "Blue Carbon (mangroves, seagrass)": "Blue Carbon mangroves, seagrass",
+    "Building Energy Efficiency / Retrofits": "Building Energy Efficiency Retrofits",
+    "Advanced / Chemical Recycling": "Advanced Chemical Recycling",
+    "Critical Minerals Processing (low-C)": "Critical Minerals Processing low-C",
+}
+
+def normalize_tech_name(name: str) -> str:
+    return " ".join(
+        name.lower()
+        .replace("&", " and ")
+        .replace("+", " ")
+        .replace("/", " ")
+        .replace("(", " ")
+        .replace(")", " ")
+        .replace(",", " ")
+        .replace("-", " ")
+        .split()
+    )
+
+def get_country_tech_block(country_name, tech_name):
+    cdata = COUNTRY_DATA_RAW.get(country_name, {})
+    techs = cdata.get("techs", {})
+
+    tech_lookup = TECH_NAME_MAP.get(tech_name, tech_name)
+    if tech_lookup in techs:
+        return techs[tech_lookup]
+
+    norm_target = normalize_tech_name(tech_name)
+    for k, v in techs.items():
+        if normalize_tech_name(k) == norm_target:
+            return v
+
+    return {}
 
 # ─────────────────────────────────────────────────────────────────
 # COUNTRY DATA FROM EXCEL (194 countries, Country Level sheet)
@@ -458,33 +524,44 @@ def compute(prices, t, ti):
     }
 
 def compute_country_excel(country_name, base_prices, t, ti):
-    """Compute using Excel country data — only apply mechanisms present in the Excel data."""
+    # Compute using Excel country data only:
+    # apply mechanisms present in the Excel data for this country-tech only.
     cp = dict(base_prices)
     cdata = COUNTRY_DATA_RAW.get(country_name, {})
     tech_name = TECHNOLOGIES[t]
-    # Normalize tech name lookup (Excel uses slightly different names for some)
-    tech_lookup = tech_name
-    tech_mbms = cdata.get("techs", {}).get(tech_lookup, {})
 
-    # Build a price dict where only active mechanisms (from Excel) retain their price
+    tech_block = get_country_tech_block(country_name, tech_name)
+    tech_mbms = tech_block.get("mbms", {})
+
     allowed_mechs = set(tech_mbms.keys())
-    # Map Excel MBM names to price keys
+
     mech_map = {
-        "ETS": "ets", "Carbon Tax": "ctax", "Fuel Mandate": "fuel",
-        "CfD": "cfd_strike", "CCfD": "ccfd_strike", "CBAM": "cbam",
-        "CORSIA": "corsia", "IMO Levy": "imo", "VCM": "vcm",
-        "CDM/PACM": "vcm", "AMC": "amc", "Feebate": "feebate",
+        "ETS": "ets",
+        "Carbon Tax": "ctax",
+        "Fuel Mandate": "fuel",
+        "CfD": "cfd_strike",
+        "CCfD": "ccfd_strike",
+        "CBAM": "cbam",
+        "CORSIA": "corsia",
+        "IMO Levy": "imo",
+        "VCM": "vcm",
+        "CDM/PACM": "vcm",
+        "CDMPACM": "vcm",
+        "AMC": "amc",
+        "Feebate": "feebate",
     }
-    # Zero out mechanisms not in this country-tech combo
+
     for excel_name, price_key in mech_map.items():
         if excel_name not in allowed_mechs:
-            if price_key in ["ets", "ctax", "cbam", "corsia", "imo", "vcm", "amc", "feebate", "fuel"]:
+            if price_key in {"ets", "ctax", "cbam", "corsia", "imo", "vcm", "amc", "feebate", "fuel"}:
                 cp[price_key] = 0
-    # Zero CfD/CCfD if not active
+
     if "CfD" not in allowed_mechs:
-        cp["cfd_strike"] = cp.get("cfd_ref", 80)  # strike==ref → no payment
+        cp["cfd_strike"] = cp.get("cfd_ref", 80)
+
     if "CCfD" not in allowed_mechs:
         cp["ccfd_strike"] = cp.get("ccfd_ref", 60)
+
     return compute(cp, t, ti)
 
 # ─────────────────────────────────────────────────────────────────
