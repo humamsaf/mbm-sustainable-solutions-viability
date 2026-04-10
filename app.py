@@ -306,6 +306,69 @@ COUNTRY_COORDS = {
 # ─────────────────────────────────────────────────────────────────
 # DEFAULT PARAMETERS per technology (44 techs)
 # ─────────────────────────────────────────────────────────────────
+
+
+def normalize_country_name(name):
+    if not name:
+        return ""
+    s = str(name).strip()
+    s = s.replace("’", "'").replace("`", "'")
+    s = " ".join(s.split())
+    return s
+
+COUNTRY_NAME_ALIASES = {
+    "United States of America": "United States",
+    "USA": "United States",
+    "US": "United States",
+    "United Kingdom of Great Britain and Northern Ireland": "United Kingdom",
+    "UK": "United Kingdom",
+    "Republic of Korea": "South Korea",
+    "Korea, Republic of": "South Korea",
+    "Korea (Republic of)": "South Korea",
+    "Korea, South": "South Korea",
+    "Democratic Republic of the Congo": "DR Congo",
+    "Congo, Dem. Rep.": "DR Congo",
+    "DRC": "DR Congo",
+    "Congo (Kinshasa)": "DR Congo",
+    "Republic of the Congo": "Congo",
+    "Congo, Rep.": "Congo",
+    "Congo (Brazzaville)": "Congo",
+    "Czechia": "Czech Republic",
+    "Türkiye": "Turkey",
+    "Viet Nam": "Vietnam",
+    "Lao PDR": "Laos",
+    "Cabo Verde": "Cape Verde",
+    "Eswatini (fmr. Swaziland)": "Eswatini",
+    "Timor Leste": "Timor-Leste",
+    "Micronesia (Federated States of)": "Micronesia",
+    "Russian Federation": "Russia",
+    "Syrian Arab Republic": "Syria",
+    "Iran (Islamic Republic of)": "Iran",
+    "Bolivia (Plurinational State of)": "Bolivia",
+    "Venezuela (Bolivarian Republic of)": "Venezuela",
+    "Moldova, Republic of": "Moldova",
+    "Tanzania, United Republic of": "Tanzania",
+}
+
+COUNTRY_COORDS_LOWER = {k.lower(): v for k, v in COUNTRY_COORDS.items()}
+COUNTRY_ALIAS_LOWER = {k.lower(): v for k, v in COUNTRY_NAME_ALIASES.items()}
+
+def get_country_coords(country_name):
+    raw = normalize_country_name(country_name)
+    candidate = COUNTRY_NAME_ALIASES.get(raw, raw)
+    coords = COUNTRY_COORDS.get(candidate)
+    if coords:
+        return coords
+    raw_low = raw.lower()
+    if raw_low in COUNTRY_ALIAS_LOWER:
+        mapped = COUNTRY_ALIAS_LOWER[raw_low]
+        coords = COUNTRY_COORDS.get(mapped) or COUNTRY_COORDS_LOWER.get(mapped.lower())
+        if coords:
+            return coords
+    if raw_low in COUNTRY_COORDS_LOWER:
+        return COUNTRY_COORDS_LOWER[raw_low]
+    return (None, None)
+
 def make_defaults():
     d = {k: [0]*N for k in ["annual_output","installed_capacity","project_lifetime","capex_per_kw","feedstock_cost","other_opex","market_price"]}
     d.update({k: [0.0]*N for k in ["capacity_factor","opex_pct","wacc","co2_abated_factor","learning_rate","cum_cap_now","cum_cap_2035"]})
@@ -1211,8 +1274,8 @@ elif page == "Spatial Viability":
             "R/C Ratio": round(r_sv["rc"], 2),
             "NPV ($M)": round(npv_sv/1e6, 1),
             "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
-            "lat": COUNTRY_COORDS.get(country, (0,0))[0],
-            "lon": COUNTRY_COORDS.get(country, (0,0))[1],
+            "lat": get_country_coords(country)[0],
+            "lon": get_country_coords(country)[1],
         })
 
     if not sv_rows:
