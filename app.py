@@ -306,69 +306,6 @@ COUNTRY_COORDS = {
 # ─────────────────────────────────────────────────────────────────
 # DEFAULT PARAMETERS per technology (44 techs)
 # ─────────────────────────────────────────────────────────────────
-
-
-def normalize_country_name(name):
-    if not name:
-        return ""
-    s = str(name).strip()
-    s = s.replace("’", "'").replace("`", "'")
-    s = " ".join(s.split())
-    return s
-
-COUNTRY_NAME_ALIASES = {
-    "United States of America": "United States",
-    "USA": "United States",
-    "US": "United States",
-    "United Kingdom of Great Britain and Northern Ireland": "United Kingdom",
-    "UK": "United Kingdom",
-    "Republic of Korea": "South Korea",
-    "Korea, Republic of": "South Korea",
-    "Korea (Republic of)": "South Korea",
-    "Korea, South": "South Korea",
-    "Democratic Republic of the Congo": "DR Congo",
-    "Congo, Dem. Rep.": "DR Congo",
-    "DRC": "DR Congo",
-    "Congo (Kinshasa)": "DR Congo",
-    "Republic of the Congo": "Congo",
-    "Congo, Rep.": "Congo",
-    "Congo (Brazzaville)": "Congo",
-    "Czechia": "Czech Republic",
-    "Türkiye": "Turkey",
-    "Viet Nam": "Vietnam",
-    "Lao PDR": "Laos",
-    "Cabo Verde": "Cape Verde",
-    "Eswatini (fmr. Swaziland)": "Eswatini",
-    "Timor Leste": "Timor-Leste",
-    "Micronesia (Federated States of)": "Micronesia",
-    "Russian Federation": "Russia",
-    "Syrian Arab Republic": "Syria",
-    "Iran (Islamic Republic of)": "Iran",
-    "Bolivia (Plurinational State of)": "Bolivia",
-    "Venezuela (Bolivarian Republic of)": "Venezuela",
-    "Moldova, Republic of": "Moldova",
-    "Tanzania, United Republic of": "Tanzania",
-}
-
-COUNTRY_COORDS_LOWER = {k.lower(): v for k, v in COUNTRY_COORDS.items()}
-COUNTRY_ALIAS_LOWER = {k.lower(): v for k, v in COUNTRY_NAME_ALIASES.items()}
-
-def get_country_coords(country_name):
-    raw = normalize_country_name(country_name)
-    candidate = COUNTRY_NAME_ALIASES.get(raw, raw)
-    coords = COUNTRY_COORDS.get(candidate)
-    if coords:
-        return coords
-    raw_low = raw.lower()
-    if raw_low in COUNTRY_ALIAS_LOWER:
-        mapped = COUNTRY_ALIAS_LOWER[raw_low]
-        coords = COUNTRY_COORDS.get(mapped) or COUNTRY_COORDS_LOWER.get(mapped.lower())
-        if coords:
-            return coords
-    if raw_low in COUNTRY_COORDS_LOWER:
-        return COUNTRY_COORDS_LOWER[raw_low]
-    return (None, None)
-
 def make_defaults():
     d = {k: [0]*N for k in ["annual_output","installed_capacity","project_lifetime","capex_per_kw","feedstock_cost","other_opex","market_price"]}
     d.update({k: [0.0]*N for k in ["capacity_factor","opex_pct","wacc","co2_abated_factor","learning_rate","cum_cap_now","cum_cap_2035"]})
@@ -1274,15 +1211,16 @@ elif page == "Spatial Viability":
             "R/C Ratio": round(r_sv["rc"], 2),
             "NPV ($M)": round(npv_sv/1e6, 1),
             "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
-            "lat": get_country_coords(country)[0],
-            "lon": get_country_coords(country)[1],
+            "lat": COUNTRY_COORDS.get(country, (0,0))[0],
+            "lon": COUNTRY_COORDS.get(country, (0,0))[1],
         })
 
     if not sv_rows:
         st.warning("No countries found for selected filters.")
         st.stop()
 
-    df_sv = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
+    df_sv_full = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
+    df_sv = df_sv_full.copy()
 
     viable_count = (df_sv["Viable?"] == "✅ Yes").sum()
     total_count  = len(df_sv)
@@ -1408,6 +1346,12 @@ elif page == "Spatial Viability":
                     "Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"]
     st.dataframe(df_sv[display_cols].style.bar(subset=["NPV ($M)","Net CF ($M)","MBM Rev ($M)"],
                  color="#bbf7d0", align="mid"), use_container_width=True, height=600)
-    st.download_button("⬇ Download Spatial Viability CSV",
-                       df_sv[display_cols].to_csv(index=False).encode(),
-                       "spatial_viability.csv", "text/csv")
+    c_dl1, c_dl2 = st.columns(2)
+    with c_dl1:
+        st.download_button("⬇ Download Spatial Viability CSV (Filtered)",
+                           df_sv[display_cols].to_csv(index=False).encode(),
+                           "spatial_viability_filtered.csv", "text/csv")
+    with c_dl2:
+        st.download_button("⬇ Download Spatial Viability CSV (Full 194 countries)",
+                           df_sv_full[display_cols].to_csv(index=False).encode(),
+                           "spatial_viability_full.csv", "text/csv")
