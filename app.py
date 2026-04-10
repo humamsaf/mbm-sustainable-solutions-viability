@@ -399,9 +399,6 @@ NAV = [
         ("NPV Analysis",        "💰"),
         ("Tech Calculations",   "🧮"),
     ]),
-    ("Spatial Viability", [
-        
-    ]),
 ]
 
 with st.sidebar:
@@ -1044,4 +1041,3 @@ elif page == "Tech Calculations":
     lco1.markdown(kpi(f"${lcoe:.3f}/unit", "LCOE / Unit Cost", "Total cost / annual output"), unsafe_allow_html=True)
     lco2.markdown(kpi(f"${lco_per_tco2:.1f}/tCO₂", "LCOX (Cost/tCO₂)", "Total cost / CO₂ abated"), unsafe_allow_html=True)
     lco3.markdown(kpi(f"{r_tc['rc']:.2f}×", "Revenue / Cost Ratio", "R/C > 1 = viable"), unsafe_allow_html=True)
-
