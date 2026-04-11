@@ -462,7 +462,7 @@ def kpi(val, label, sub=""):
             f'<div class="kpi-label">{label}</div>'
             f'<div class="kpi-value">{val}</div>{s}</div>')
 
-def compute(prices, t, ti):
+def compute(prices, t, ti, dr_price_override=None):
     o  = ti["annual_output"][t]
     ck = ti["installed_capacity"][t] * 1000
     lt = ti["project_lifetime"][t]
@@ -473,7 +473,9 @@ def compute(prices, t, ti):
     fo  = cap * ti["opex_pct"][t]
     tc  = ac + fo + ti["feedstock_cost"][t] + ti["other_opex"][t]
     co2 = o * ti["co2_abated_factor"][t]
-    dr  = o * ti["market_price"][t] if o > 0 else 0
+    # Use country-specific market price if available, else global default
+    mp  = dr_price_override if dr_price_override is not None else ti["market_price"][t]
+    dr  = o * mp if o > 0 else 0
 
     def active(mi): return MBM_MATRIX[t][mi] is not None
 
@@ -658,16 +660,67 @@ TECH_ENERGY_OVERRIDES = {
     "Green Fertilizer (low-carbon NH3)": "ng",
 }
 
-# Techs where fuel price directly affects direct revenue (market price)
-TECH_MARKET_PRICE_MAP = {
-    "Sustainable Aviation Fuel (SAF)": "d",
-    "HVO (Hydrotreated Vegetable Oil)": "d",
-    "E-kerosene (aviation e-fuel)": "d",
-    "E-diesel / E-methanol (road & ship)": "d",
-    "E-diesel  (road & ship)": "d",
-    "E-Ammonia (maritime fuel)": "d",
-    "E-Methanol (maritime fuel)": "d",
+# Direct revenue override mapping: which country energy price to use as market_price proxy
+# Groups:
+#   "eb_mwh"  → Electricity Business USD/kWh * 1000 → USD/MWh  (power/grid techs)
+#   "ng_mwh"  → Nat Gas USD/kWh * 1000 → USD/MWh              (gas grid techs)
+#   "d_tonne" → Diesel USD/L * 278 → USD/tonne equiv           (aviation/maritime fuels)
+#   "g_tonne" → Gasoline USD/L * 278 → USD/tonne equiv         (road fuels)
+#   None      → don't override (commodity price e.g. steel, cement not in our data)
+TECH_DR_PRICE_SOURCE = {
+    # Power sold to grid — use local electricity business tariff
+    "Solar PV": "eb_mwh",
+    "Onshore Wind": "eb_mwh",
+    "Offshore Wind (fixed foundation)": "eb_mwh",
+    "Floating Offshore Wind": "eb_mwh",
+    "Concentrated Solar Power (CSP)": "eb_mwh",
+    "Ocean / Tidal / Wave Energy": "eb_mwh",
+    "Small Modular Reactors (SMR)": "eb_mwh",
+    "Enhanced Geothermal Systems (EGS)": "eb_mwh",
+    "Battery Storage (grid-scale)": "eb_mwh",
+    "Long-Duration Energy Storage (LDES)": "eb_mwh",
+    "Industrial Heat Pumps (high-temp)": "eb_mwh",
+    "Biogas (anaerobic digestion)": "eb_mwh",
+    "Biomethane (upgraded to grid)": "ng_mwh",  # gas grid injection price
+    "Green Data Centers": "eb_mwh",
+    "Building Energy Efficiency / Retrofits": "eb_mwh",
+    "Waste-to-Energy + CCS": "eb_mwh",
+    "Electric Aviation (eVTOL/short-haul)": "eb_mwh",
+    "Rail Electrification": "eb_mwh",
+    # Aviation/maritime fuels — compete with diesel/kerosene
+    "Sustainable Aviation Fuel (SAF)": "d_tonne",
+    "HVO (Hydrotreated Vegetable Oil)": "d_tonne",
+    "E-kerosene (aviation e-fuel)": "d_tonne",
+    "E-Ammonia (maritime fuel)": "d_tonne",
+    "E-Methanol (maritime fuel)": "d_tonne",
+    "E-diesel  (road & ship)": "d_tonne",
 }
+
+def compute_country_dr_override(tech_name, iso3, ti_market_price):
+    """Return country-adjusted direct revenue price, or None to use default."""
+    source = TECH_DR_PRICE_SOURCE.get(tech_name)
+    if source is None:
+        return None
+    ep = get_country_energy_prices(iso3)
+    if ep is None:
+        return None
+
+    if source == "eb_mwh":
+        val = ep.get("eb")
+        if val is not None:
+            return round(val * 1000, 2)  # USD/kWh → USD/MWh
+    elif source == "ng_mwh":
+        val = ep.get("ng")
+        if val is not None:
+            return round(val * 1000, 2)  # USD/kWh → USD/MWh
+    elif source == "d_tonne":
+        val = ep.get("d")
+        if val is not None:
+            # Diesel USD/L → USD/tonne: diesel density ~0.84 kg/L → 1000 L/tonne
+            # multiply by 840 (approx 840 L per tonne diesel equiv)
+            return round(val * 840, 0)
+
+    return None
 
 def get_country_energy_prices(iso3):
     """Return energy prices for a country by ISO3 code, or None if not available."""
@@ -710,24 +763,18 @@ def compute_country_excel(country_name, base_prices, t, ti):
         if energy_field and ep.get(energy_field) is not None:
             raw_val = ep[energy_field]
             if energy_field == "eb":
-                # Convert USD/kWh → USD/MWh
                 cp["electricity"] = round(raw_val * 1000, 2)
             elif energy_field == "ng":
-                # Convert USD/kWh → USD/MMBtu (1 MMBtu = 293.07 kWh)
                 cp["gas"] = round(raw_val * 293.07, 2)
             elif energy_field == "d":
-                # Diesel USD/L → fuel USD/MWh (diesel ~10 kWh/L = 0.01 MWh/L)
                 cp["fuel"] = round(raw_val / 0.01, 2)
 
-        # For fuel-competing techs: also override market price with country diesel/kerosene price
-        mkt_field = TECH_MARKET_PRICE_MAP.get(tech_name)
-        if mkt_field and ep.get(mkt_field) is not None:
-            # Scale diesel price to match market_price units (USD/MWh equivalent)
-            diesel_price = ep[mkt_field]
-            # market_price for aviation/maritime fuels in app = USD/MWh
-            cp["_country_diesel_usd_l"] = diesel_price  # store for reference
+    # ── DIRECT REVENUE PRICE OVERRIDE — local market price per country ──
+    dr_override = compute_country_dr_override(tech_name, iso3, ti.get("market_price", [None]*100)[t])
+    if dr_override is not None:
+        cp["_dr_market_price"] = dr_override  # signal to compute()
 
-    return compute(cp, t, ti)
+    return compute(cp, t, ti, dr_price_override=dr_override)
 
 # ─────────────────────────────────────────────────────────────────
 # SESSION STATE
