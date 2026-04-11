@@ -498,6 +498,181 @@ def compute(prices, t, ti):
               "CBAM":cb,"CORSIA":co,"IMO Levy":im,"VCM/CDM":v,"AMC":am,"Feebate":fb},
     }
 
+COUNTRY_ENERGY_PRICES = {
+    "AFG":{"g":0.954,"d":0.97,"ng":None,"er":0.052,"eb":0.093},
+    "AGO":{"g":0.327,"d":0.436,"ng":None,"er":0.016,"eb":0.013},
+    "ALB":{"g":2.403,"d":2.585,"ng":None,"er":0.118,"eb":0.137},
+    "AND":{"g":1.84,"d":1.993,"ng":None,"er":0.195,"eb":0.176},
+    "ARE":{"g":0.893,"d":1.277,"ng":None,"er":0.08,"eb":0.11},
+    "ARG":{"g":1.52,"d":1.613,"ng":0.023,"er":0.083,"eb":0.095},
+    "ARM":{"g":1.328,"d":1.381,"ng":None,"er":0.112,"eb":0.11},
+    "AUS":{"g":1.472,"d":1.904,"ng":0.091,"er":0.257,"eb":0.24},
+    "AUT":{"g":2.073,"d":2.584,"ng":0.153,"er":0.351,"eb":0.291},
+    "AZE":{"g":0.676,"d":0.647,"ng":0.016,"er":0.048,"eb":0.064},
+    "BEL":{"g":2.175,"d":2.662,"ng":0.09,"er":0.404,"eb":0.261},
+    "BFA":{"g":1.495,"d":1.187,"ng":None,"er":0.208,"eb":0.216},
+    "BGD":{"g":0.972,"d":0.81,"ng":0.011,"er":0.062,"eb":0.1},
+    "BGR":{"g":1.687,"d":1.937,"ng":None,"er":0.154,"eb":0.152},
+    "BHR":{"g":0.67,"d":0.583,"ng":0.013,"er":0.048,"eb":0.078},
+    "BHS":{"g":1.464,"d":1.44,"ng":None,"er":0.348,"eb":0.369},
+    "BIH":{"g":1.678,"d":2.127,"ng":None,"er":0.106,"eb":0.117},
+    "BLR":{"g":0.908,"d":0.908,"ng":0.007,"er":0.085,"eb":0.111},
+    "BLZ":{"g":1.921,"d":1.912,"ng":None,"er":0.217,"eb":0.173},
+    "BRA":{"g":1.314,"d":1.444,"ng":0.214,"er":0.162,"eb":0.132},
+    "BRB":{"g":1.852,"d":1.564,"ng":0.094,"er":0.313,"eb":0.326},
+    "BTN":{"g":0.917,"d":0.992,"ng":None,"er":0.015,"eb":0.019},
+    "BWA":{"g":1.324,"d":1.66,"ng":None,"er":0.094,"eb":0.12},
+    "CAN":{"g":1.499,"d":1.694,"ng":0.035,"er":0.123,"eb":0.108},
+    "CHE":{"g":2.348,"d":2.762,"ng":0.184,"er":0.366,"eb":0.286},
+    "CHL":{"g":1.649,"d":1.537,"ng":0.136,"er":0.224,"eb":0.166},
+    "CHN":{"g":1.341,"d":1.203,"ng":0.051,"er":0.076,"eb":0.098},
+    "CIV":{"g":1.442,"d":1.187,"ng":None,"er":0.131,"eb":0.234},
+    "CMR":{"g":1.479,"d":1.458,"ng":None,"er":0.084,"eb":0.178},
+    "COD":{"g":1.052,"d":1.047,"ng":None,"er":0.065,"eb":0.076},
+    "COL":{"g":1.112,"d":0.797,"ng":0.07,"er":0.205,"eb":0.203},
+    "CPV":{"g":1.463,"d":1.229,"ng":None,"er":0.329,"eb":0.203},
+    "CRI":{"g":1.365,"d":1.143,"ng":None,"er":0.17,"eb":0.23},
+    "CUB":{"g":1.295,"d":1.096,"ng":None,"er":0.015,"eb":None},
+    "CYP":{"g":1.755,"d":2.138,"ng":None,"er":0.34,"eb":0.304},
+    "CZE":{"g":1.96,"d":2.287,"ng":0.114,"er":0.352,"eb":0.228},
+    "DEU":{"g":2.527,"d":2.825,"ng":0.122,"er":0.406,"eb":0.285},
+    "DNK":{"g":2.694,"d":2.968,"ng":0.125,"er":0.361,"eb":0.234},
+    "DOM":{"g":1.327,"d":1.043,"ng":None,"er":0.115,"eb":0.171},
+    "DZA":{"g":0.354,"d":0.233,"ng":0.003,"er":0.041,"eb":0.035},
+    "ECU":{"g":0.763,"d":0.745,"ng":None,"er":0.097,"eb":0.092},
+    "EGY":{"g":0.439,"d":0.375,"ng":0.011,"er":0.024,"eb":0.037},
+    "ESP":{"g":1.816,"d":2.163,"ng":0.102,"er":0.253,"eb":0.135},
+    "EST":{"g":1.998,"d":2.302,"ng":None,"er":0.29,"eb":0.164},
+    "ETH":{"g":0.902,"d":1.035,"ng":None,"er":0.006,"eb":0.018},
+    "FIN":{"g":2.36,"d":2.58,"ng":None,"er":0.174,"eb":0.124},
+    "FRA":{"g":2.31,"d":2.591,"ng":0.142,"er":0.276,"eb":0.185},
+    "GBR":{"g":1.978,"d":2.347,"ng":0.089,"er":0.404,"eb":0.445},
+    "GEO":{"g":1.329,"d":1.441,"ng":None,"er":0.066,"eb":0.105},
+    "GHA":{"g":1.303,"d":1.553,"ng":None,"er":0.143,"eb":0.134},
+    "GRC":{"g":2.404,"d":2.403,"ng":0.085,"er":0.251,"eb":0.232},
+    "GTM":{"g":1.436,"d":1.546,"ng":None,"er":0.297,"eb":0.189},
+    "HND":{"g":1.308,"d":1.254,"ng":None,"er":0.233,"eb":0.231},
+    "HRV":{"g":1.949,"d":2.182,"ng":None,"er":0.178,"eb":0.174},
+    "HUN":{"g":1.812,"d":1.873,"ng":0.093,"er":0.11,"eb":0.251},
+    "IDN":{"g":0.727,"d":0.858,"ng":None,"er":0.091,"eb":0.07},
+    "IND":{"g":1.089,"d":0.975,"ng":0.049,"er":0.077,"eb":0.123},
+    "IRL":{"g":2.271,"d":2.526,"ng":0.126,"er":0.447,"eb":None},
+    "IRN":{"g":0.029,"d":0.006,"ng":None,"er":0.003,"eb":None},
+    "IRQ":{"g":0.649,"d":None,"ng":None,"er":0.015,"eb":0.045},
+    "ISL":{"g":1.855,"d":2.157,"ng":None,"er":0.177,"eb":0.086},
+    "ISR":{"g":2.64,"d":2.51,"ng":None,"er":0.182,"eb":0.112},
+    "ITA":{"g":2.075,"d":2.498,"ng":0.15,"er":0.415,"eb":0.415},
+    "JAM":{"g":1.359,"d":1.397,"ng":None,"er":0.287,"eb":0.241},
+    "JOR":{"g":1.693,"d":1.016,"ng":None,"er":0.09,"eb":0.137},
+    "JPN":{"g":1.114,"d":0.978,"ng":0.077,"er":0.228,"eb":0.202},
+    "KAZ":{"g":0.526,"d":0.625,"ng":None,"er":0.056,"eb":0.075},
+    "KEN":{"g":1.363,"d":1.274,"ng":None,"er":0.218,"eb":0.175},
+    "KGZ":{"g":0.926,"d":0.919,"ng":None,"er":0.014,"eb":0.039},
+    "KHM":{"g":1.66,"d":2.047,"ng":None,"er":0.15,"eb":0.0},
+    "KOR":{"g":1.44,"d":1.434,"ng":0.073,"er":0.126,"eb":0.119},
+    "KWT":{"g":0.339,"d":0.371,"ng":None,"er":0.039,"eb":0.069},
+    "LAO":{"g":1.893,"d":2.328,"ng":None,"er":0.029,"eb":None},
+    "LBY":{"g":0.023,"d":0.023,"ng":None,"er":None,"eb":None},
+    "LIE":{"g":2.482,"d":2.846,"ng":None,"er":0.402,"eb":0.274},
+    "LKA":{"g":1.442,"d":1.404,"ng":None,"er":0.116,"eb":0.091},
+    "LSO":{"g":1.38,"d":1.806,"ng":None,"er":0.106,"eb":0.022},
+    "LTU":{"g":2.017,"d":2.465,"ng":None,"er":0.281,"eb":0.187},
+    "LUX":{"g":2.039,"d":2.535,"ng":None,"er":0.258,"eb":0.22},
+    "LVA":{"g":2.132,"d":2.385,"ng":None,"er":0.281,"eb":0.169},
+    "MAR":{"g":1.642,"d":1.543,"ng":None,"er":0.12,"eb":0.11},
+    "MDA":{"g":1.711,"d":1.971,"ng":None,"er":0.177,"eb":0.156},
+    "MDG":{"g":1.176,"d":1.119,"ng":None,"er":0.129,"eb":0.188},
+    "MEX":{"g":1.583,"d":1.613,"ng":0.037,"er":0.108,"eb":0.212},
+    "MKD":{"g":1.572,"d":1.845,"ng":None,"er":0.128,"eb":0.256},
+    "MLI":{"g":1.539,"d":1.653,"ng":None,"er":0.221,"eb":0.16},
+    "MLT":{"g":1.554,"d":1.403,"ng":None,"er":0.148,"eb":0.164},
+    "MMR":{"g":1.52,"d":1.809,"ng":None,"er":0.025,"eb":0.106},
+    "MOZ":{"g":1.307,"d":1.249,"ng":None,"er":0.127,"eb":0.08},
+    "MUS":{"g":1.243,"d":1.378,"ng":None,"er":0.134,"eb":0.135},
+    "MWI":{"g":3.847,"d":3.856,"ng":None,"er":0.087,"eb":0.151},
+    "MYS":{"g":0.96,"d":1.493,"ng":0.03,"er":0.05,"eb":0.129},
+    "NGA":{"g":0.887,"d":1.463,"ng":None,"er":0.036,"eb":0.05},
+    "NIC":{"g":1.334,"d":1.177,"ng":None,"er":0.176,"eb":0.217},
+    "NLD":{"g":2.709,"d":2.866,"ng":0.137,"er":0.284,"eb":0.22},
+    "NOR":{"g":2.183,"d":2.612,"ng":None,"er":0.162,"eb":0.109},
+    "NPL":{"g":1.358,"d":1.224,"ng":None,"er":0.043,"eb":0.068},
+    "NZL":{"g":2.009,"d":1.881,"ng":0.097,"er":0.209,"eb":None},
+    "OMN":{"g":0.622,"d":0.671,"ng":None,"er":0.03,"eb":0.188},
+    "PAK":{"g":1.356,"d":1.865,"ng":None,"er":0.064,"eb":0.154},
+    "PAN":{"g":1.255,"d":1.358,"ng":None,"er":0.176,"eb":0.198},
+    "PER":{"g":1.627,"d":1.682,"ng":None,"er":0.187,"eb":0.162},
+    "PHL":{"g":1.573,"d":2.149,"ng":None,"er":0.207,"eb":0.155},
+    "POL":{"g":1.957,"d":2.349,"ng":0.121,"er":0.234,"eb":0.346},
+    "PRT":{"g":2.248,"d":2.472,"ng":0.152,"er":0.237,"eb":0.158},
+    "PRY":{"g":1.117,"d":1.377,"ng":None,"er":0.054,"eb":0.045},
+    "QAT":{"g":0.562,"d":0.562,"ng":None,"er":0.032,"eb":0.036},
+    "ROU":{"g":2.089,"d":2.293,"ng":None,"er":0.212,"eb":0.238},
+    "RUS":{"g":0.862,"d":0.991,"ng":0.01,"er":0.068,"eb":0.1},
+    "RWA":{"g":1.577,"d":1.51,"ng":None,"er":0.208,"eb":0.077},
+    "SAU":{"g":0.621,"d":0.477,"ng":None,"er":0.052,"eb":0.07},
+    "SEN":{"g":1.618,"d":1.196,"ng":None,"er":0.183,"eb":None},
+    "SGP":{"g":2.406,"d":3.247,"ng":0.19,"er":0.233,"eb":0.265},
+    "SLE":{"g":1.779,"d":2.033,"ng":None,"er":0.231,"eb":0.303},
+    "SLV":{"g":1.135,"d":1.097,"ng":None,"er":0.253,"eb":0.223},
+    "SRB":{"g":1.868,"d":2.115,"ng":0.045,"er":0.128,"eb":0.143},
+    "SVK":{"g":1.829,"d":1.957,"ng":0.065,"er":0.213,"eb":0.296},
+    "SVN":{"g":1.874,"d":2.096,"ng":None,"er":0.227,"eb":0.19},
+    "SWE":{"g":2.058,"d":2.718,"ng":0.229,"er":0.241,"eb":None},
+    "SWZ":{"g":1.152,"d":1.176,"ng":None,"er":0.127,"eb":0.09},
+    "TGO":{"g":1.196,"d":1.223,"ng":None,"er":0.198,"eb":0.181},
+    "THA":{"g":1.649,"d":1.495,"ng":None,"er":0.127,"eb":0.128},
+    "TTO":{"g":1.142,"d":0.65,"ng":None,"er":0.057,"eb":0.053},
+    "TUN":{"g":0.858,"d":0.749,"ng":0.031,"er":0.067,"eb":0.115},
+    "TZA":{"g":1.469,"d":1.464,"ng":None,"er":0.091,"eb":0.093},
+    "UGA":{"g":1.409,"d":1.355,"ng":None,"er":0.171,"eb":0.117},
+    "UKR":{"g":1.729,"d":2.105,"ng":0.021,"er":0.083,"eb":0.155},
+    "URY":{"g":2.025,"d":1.247,"ng":None,"er":0.254,"eb":0.125},
+    "USA":{"g":1.175,"d":1.491,"ng":0.048,"er":0.186,"eb":0.148},
+    "UZB":{"g":1.011,"d":1.08,"ng":None,"er":0.037,"eb":0.067},
+    "VEN":{"g":0.035,"d":0.004,"ng":None,"er":0.069,"eb":0.081},
+    "VNM":{"g":1.042,"d":1.717,"ng":None,"er":0.078,"eb":0.078},
+    "ZAF":{"g":1.363,"d":1.702,"ng":None,"er":0.204,"eb":0.103},
+    "ZMB":{"g":1.401,"d":1.537,"ng":None,"er":0.023,"eb":0.039},
+    "ZWE":{"g":2.23,"d":2.11,"ng":None,"er":None,"eb":None},
+}
+
+# Tech-to-energy price mapping: which energy price to override for each tech
+# eb=Electricity Business (USD/kWh), d=Diesel (USD/L), ng=Nat Gas (USD/kWh)
+TECH_ENERGY_OVERRIDES = {
+    "Green Hydrogen (electrolysis)": "eb",        # electricity feedstock
+    "Battery Storage (grid-scale)": "eb",
+    "Long-Duration Energy Storage (LDES)": "eb",
+    "Green Data Centers": "eb",
+    "Industrial Heat Pumps (high-temp)": "eb",
+    "Electric Vehicles (EVs)": "eb",
+    "Rail Electrification": "eb",
+    "Electric Aviation (eVTOL/short-haul)": "eb",
+    "Sustainable Aviation Fuel (SAF)": "d",       # competes with diesel/kerosene
+    "HVO (Hydrotreated Vegetable Oil)": "d",
+    "E-kerosene (aviation e-fuel)": "d",
+    "E-diesel / E-methanol (road & ship)": "d",
+    "E-diesel  (road & ship)": "d",
+    "Biogas (anaerobic digestion)": "ng",          # feedstock / market price
+    "Biomethane (upgraded to grid)": "ng",
+    "Hydrogen-based Chemicals": "eb",
+    "Green Fertilizer (low-carbon NH3)": "ng",
+}
+
+# Techs where fuel price directly affects direct revenue (market price)
+TECH_MARKET_PRICE_MAP = {
+    "Sustainable Aviation Fuel (SAF)": "d",
+    "HVO (Hydrotreated Vegetable Oil)": "d",
+    "E-kerosene (aviation e-fuel)": "d",
+    "E-diesel / E-methanol (road & ship)": "d",
+    "E-diesel  (road & ship)": "d",
+    "E-Ammonia (maritime fuel)": "d",
+    "E-Methanol (maritime fuel)": "d",
+}
+
+def get_country_energy_prices(iso3):
+    """Return energy prices for a country by ISO3 code, or None if not available."""
+    return COUNTRY_ENERGY_PRICES.get(iso3, None)
+
 def compute_country_excel(country_name, base_prices, t, ti):
     """Compute using Excel country data — only apply mechanisms present in the Excel data."""
     cp = dict(base_prices)
@@ -526,6 +701,32 @@ def compute_country_excel(country_name, base_prices, t, ti):
         cp["cfd_strike"] = cp.get("cfd_ref", 80)  # strike==ref → no payment
     if "CCfD" not in allowed_mechs:
         cp["ccfd_strike"] = cp.get("ccfd_ref", 60)
+
+    # ── ENERGY PRICE OVERRIDES from Country_Price_Level.xlsx ──────
+    iso3 = cdata.get("iso3", "")
+    ep = get_country_energy_prices(iso3)
+    if ep:
+        energy_field = TECH_ENERGY_OVERRIDES.get(tech_name)
+        if energy_field and ep.get(energy_field) is not None:
+            raw_val = ep[energy_field]
+            if energy_field == "eb":
+                # Convert USD/kWh → USD/MWh
+                cp["electricity"] = round(raw_val * 1000, 2)
+            elif energy_field == "ng":
+                # Convert USD/kWh → USD/MMBtu (1 MMBtu = 293.07 kWh)
+                cp["gas"] = round(raw_val * 293.07, 2)
+            elif energy_field == "d":
+                # Diesel USD/L → fuel USD/MWh (diesel ~10 kWh/L = 0.01 MWh/L)
+                cp["fuel"] = round(raw_val / 0.01, 2)
+
+        # For fuel-competing techs: also override market price with country diesel/kerosene price
+        mkt_field = TECH_MARKET_PRICE_MAP.get(tech_name)
+        if mkt_field and ep.get(mkt_field) is not None:
+            # Scale diesel price to match market_price units (USD/MWh equivalent)
+            diesel_price = ep[mkt_field]
+            # market_price for aviation/maritime fuels in app = USD/MWh
+            cp["_country_diesel_usd_l"] = diesel_price  # store for reference
+
     return compute(cp, t, ti)
 
 # ─────────────────────────────────────────────────────────────────
@@ -1276,10 +1477,20 @@ elif page == "Country Viability":
         active_mbms_str = ", ".join([f"{k}({v})" for k,v in tech_mbms.items()]) if tech_mbms else "None"
         real_cp = COUNTRY_CARBON_PRICES.get(country, None) if use_real_carbon_prices else None
 
+        # Get energy prices for this country
+        iso3_c = cdata.get("iso3", "")
+        ep_c = get_country_energy_prices(iso3_c)
+        elec_biz = ep_c["eb"] if ep_c and ep_c.get("eb") is not None else None
+        diesel_c = ep_c["d"] if ep_c and ep_c.get("d") is not None else None
+        natgas_c = ep_c["ng"] if ep_c and ep_c.get("ng") is not None else None
+
         sv_rows.append({
             "Country": country, "ISO3": cdata["iso3"], "Region": cdata["region"],
             "Active MBMs": active_mbms_str,
             "Carbon Price": real_cp if real_cp else "—",
+            "⚡ Elec ($/kWh)": round(elec_biz, 3) if elec_biz else "—",
+            "⛽ Diesel ($/L)": round(diesel_c, 3) if diesel_c else "—",
+            "🔥 Nat.Gas ($/kWh)": round(natgas_c, 4) if natgas_c else "—",
             "MBM Rev ($M)": round(r_sv["mb"]/1e6, 2),
             "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
             "Total Rev ($M)": round(r_sv["tr"]/1e6, 2),
@@ -1290,6 +1501,8 @@ elif page == "Country Viability":
             "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
             "lat": COUNTRY_COORDS.get(country, (0,0))[0],
             "lon": COUNTRY_COORDS.get(country, (0,0))[1],
+            "_elec": elec_biz,
+            "_diesel": diesel_c,
         })
 
     if not sv_rows:
@@ -1323,7 +1536,7 @@ elif page == "Country Viability":
     # Map layer selector
     map_layer = st.radio(
         "Map Layer (color = value, size = magnitude):",
-        ["🟢 MBM Revenue", "🔵 Direct Revenue", "🟡 Total Revenue", "🟣 NPV"],
+        ["🟢 MBM Revenue", "🔵 Direct Revenue", "🟡 Total Revenue", "🟣 NPV", "⚡ Electricity Price", "⛽ Diesel Price"],
         horizontal=True,
         key="sv_map_layer"
     )
@@ -1333,16 +1546,21 @@ elif page == "Country Viability":
         "🔵 Direct Revenue": ("Direct Rev ($M)", [[0.0,"#dbeafe"],[0.5,"#3b82f6"],[1.0,"#1e3a8a"]], "Direct Rev ($M)"),
         "🟡 Total Revenue":  ("Total Rev ($M)",  [[0.0,"#fef9c3"],[0.5,"#f59e0b"],[1.0,"#92400e"]], "Total Rev ($M)"),
         "🟣 NPV":            ("NPV ($M)",        [[0.0,"#f3e8ff"],[0.5,"#a855f7"],[1.0,"#4c1d95"]], "NPV ($M)"),
+        "⚡ Electricity Price": ("⚡ Elec ($/kWh)", [[0.0,"#fef9c3"],[0.5,"#f97316"],[1.0,"#7c2d12"]], "Elec $/kWh"),
+        "⛽ Diesel Price":   ("⛽ Diesel ($/L)", [[0.0,"#fef9c3"],[0.5,"#dc2626"],[1.0,"#450a0a"]], "Diesel $/L"),
     }
     val_col, colorscale, cb_title = layer_col_map[map_layer]
 
     df_map = df_sv[df_sv["lat"] != 0].copy()
-    df_map["_val"] = df_map[val_col]
-
-    # Clamp marker size to value column (always positive)
-    df_map["marker_size"] = df_map["_val"].clip(lower=0).apply(
-        lambda x: max(5, min(20, 5 + x / 12))
-    )
+    # For energy price layers, use numeric values from the columns (may be string "—")
+    if val_col in ["⚡ Elec ($/kWh)", "⛽ Diesel ($/L)"]:
+        df_map["_val"] = pd.to_numeric(df_map[val_col], errors="coerce").fillna(0)
+        df_map["marker_size"] = df_map["_val"].apply(lambda x: max(5, min(18, 5 + x * 5)))
+    else:
+        df_map["_val"] = df_map[val_col]
+        df_map["marker_size"] = df_map["_val"].clip(lower=0).apply(
+            lambda x: max(5, min(20, 5 + x / 12))
+        )
 
     # Detailed hover
     df_map["hover"] = df_map.apply(
@@ -1355,8 +1573,10 @@ elif page == "Country Viability":
             f"📉 Total Cost:     <b>${row['Total Cost ($M)']:.2f}M</b><br>"
             f"💎 NPV:            <b>${row['NPV ($M)']:.1f}M</b><br>"
             f"──────────────────<br>"
-            f"{'✅ Viable' if row['Viable?'] == '✅ Yes' else '❌ Not Viable'}"
-            + (f"  |  🌡️ Carbon: ${row['Carbon Price']} USD/tCO₂e" if row['Carbon Price'] != '—' else "")
+            + (f"⚡ Elec: ${row['⚡ Elec ($/kWh)']}/kWh  " if row['⚡ Elec ($/kWh)'] != '—' else "")
+            + (f"⛽ Diesel: ${row['⛽ Diesel ($/L)']}/L<br>" if row['⛽ Diesel ($/L)'] != '—' else "<br>")
+            + (f"🌡️ Carbon: ${row['Carbon Price']} USD/tCO₂e<br>" if row['Carbon Price'] != '—' else "")
+            + f"{'✅ Viable' if row['Viable?'] == '✅ Yes' else '❌ Not Viable'}"
         ),
         axis=1
     )
@@ -1423,7 +1643,7 @@ elif page == "Country Viability":
                 symbol="circle",
             ),
             text=mbm_pos_df["hover"], hoverinfo="text",
-            name=f"🟢 MBM Revenue > 0  ({len(mbm_pos_df)} countries)",
+            name=f"🟢 MBM Revenue > 0  ({len(mbm_pos_df)} countries)" if "Price" not in map_layer else f"🌍 Has data  ({len(mbm_pos_df)} countries)",
         ))
 
     fig_map.update_layout(
@@ -1510,7 +1730,9 @@ elif page == "Country Viability":
     # ── DATA TABLE ─────────────────────────────────────────────────
     st.markdown('<div class="sec-head">Full Country Data Table</div>', unsafe_allow_html=True)
     display_cols = [
-        "Country","ISO3","Region","Carbon Price","Active MBMs","MBM Rev ($M)","Direct Rev ($M)",
+        "Country","ISO3","Region","Carbon Price",
+        "⚡ Elec ($/kWh)","⛽ Diesel ($/L)","🔥 Nat.Gas ($/kWh)",
+        "Active MBMs","MBM Rev ($M)","Direct Rev ($M)",
         "Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"
     ]
     st.dataframe(
