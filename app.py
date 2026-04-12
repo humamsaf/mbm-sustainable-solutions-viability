@@ -849,12 +849,38 @@ def compute_country_excel(country_name, base_prices, t, ti):
             elif energy_field == "d":
                 cp["fuel"] = round(raw_val / 0.01, 2)
 
+    # ── FEEDSTOCK COST OVERRIDE — local energy price drives variable cost ──
+    # For techs whose primary variable cost is an energy input (electricity, gas, diesel),
+    # scale the global feedstock_cost by the country energy price ratio vs the global assumption.
+    # This makes total cost vary meaningfully across countries instead of being uniform.
+    ti_local = {k: list(v) for k, v in ti.items()}
+    if ep:
+        energy_field_cost = TECH_ENERGY_OVERRIDES.get(tech_name)
+        if energy_field_cost and ep.get(energy_field_cost) is not None:
+            local_val = ep[energy_field_cost]
+            if energy_field_cost == "eb":
+                local_usd_per_mwh  = local_val * 1000
+                global_usd_per_mwh = base_prices.get("electricity", 80)
+                ratio = local_usd_per_mwh / global_usd_per_mwh if global_usd_per_mwh > 0 else 1.0
+            elif energy_field_cost == "ng":
+                local_usd_per_mmbtu  = local_val * 293.07
+                global_usd_per_mmbtu = base_prices.get("gas", 8)
+                ratio = local_usd_per_mmbtu / global_usd_per_mmbtu if global_usd_per_mmbtu > 0 else 1.0
+            elif energy_field_cost == "d":
+                local_usd_per_mwh  = local_val / 0.01
+                global_usd_per_mwh = base_prices.get("fuel", 250)
+                ratio = local_usd_per_mwh / global_usd_per_mwh if global_usd_per_mwh > 0 else 1.0
+            else:
+                ratio = 1.0
+            ratio = max(0.1, min(5.0, ratio))  # clamp to sensible range
+            ti_local["feedstock_cost"][t] = round(ti["feedstock_cost"][t] * ratio, 0)
+
     # ── DIRECT REVENUE PRICE OVERRIDE — local market price per country ──
     dr_override = compute_country_dr_override(tech_name, iso3, ti.get("market_price", [None]*100)[t])
     if dr_override is not None:
-        cp["_dr_market_price"] = dr_override  # signal to compute()
+        cp["_dr_market_price"] = dr_override
 
-    return compute(cp, t, ti, dr_price_override=dr_override)
+    return compute(cp, t, ti_local, dr_price_override=dr_override)
 
 # ─────────────────────────────────────────────────────────────────
 
