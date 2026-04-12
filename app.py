@@ -1023,13 +1023,36 @@ if page == "Technology Viability":
 
     df_map = df_sv[df_sv["lat"] != 0].copy()
     df_map["_val"] = df_map[map_metric]
-    df_map["hover"] = df_map.apply(lambda row: (
-        f"<b>{row['Country']}</b> ({row['Region']})<br>"
-        f"NPV: <b>${row['NPV ($M)']:.1f}M</b> · R/C: {row['R/C Ratio']:.2f}×<br>"
-        f"MBM Rev: ${row['MBM Rev ($M)']:.2f}M · Direct: ${row['Direct Rev ($M)']:.2f}M<br>"
-        f"Carbon: {row['Carbon Price']} · Elec: {row['Elec ($/kWh)']} · Diesel: {row['Diesel ($/L)']}<br>"
-        f"{'Viable' if row['Viable?'] == 'Yes' else 'Not Viable'}"
-    ), axis=1)
+
+    def _hover(row):
+        viable_label = "Viable" if row["Viable?"] == "Yes" else "Not Viable"
+        viable_color = "#059669" if row["Viable?"] == "Yes" else "#dc2626"
+        cp = f"{row['Carbon Price']} USD/tCO₂e" if row["Carbon Price"] != "—" else "—"
+        elec = f"{row['Elec ($/kWh)']} $/kWh" if row["Elec ($/kWh)"] != "—" else "—"
+        diesel = f"{row['Diesel ($/L)']} $/L" if row["Diesel ($/L)"] != "—" else "—"
+        total_rev = row["Total Rev ($M)"]
+        mbm_pct = f"{row['MBM Rev ($M)']/total_rev*100:.0f}%" if total_rev > 0 else "—"
+        return (
+            f"<span style='font-size:13px;font-weight:700;color:#111827;'>{row['Country']}</span>"
+            f"  <span style='font-size:11px;color:#6b7280;'>{row['Region']}</span><br>"
+            f"<span style='color:{viable_color};font-size:11px;font-weight:600;'>{viable_label}</span>"
+            f"  &nbsp;|&nbsp;  R/C Ratio: <b>{row['R/C Ratio']:.2f}×</b><br>"
+            f"<br>"
+            f"<span style='font-size:10px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;'>Financial</span><br>"
+            f"NPV: <b style='font-size:12px;'>${row['NPV ($M)']:.1f}M</b><br>"
+            f"Total Revenue: <b>${total_rev:.2f}M</b>"
+            f"&nbsp;&nbsp;Total Cost: <b>${row['Total Cost ($M)']:.2f}M</b><br>"
+            f"Net Cash Flow: <b>${row['Net CF ($M)']:.2f}M</b><br>"
+            f"<br>"
+            f"<span style='font-size:10px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;'>Revenue Breakdown</span><br>"
+            f"MBM Revenue: <b>${row['MBM Rev ($M)']:.2f}M</b> ({mbm_pct} of total)<br>"
+            f"Direct Revenue: <b>${row['Direct Rev ($M)']:.2f}M</b><br>"
+            f"<br>"
+            f"<span style='font-size:10px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.05em;'>Energy & Carbon</span><br>"
+            f"Carbon Price: <b>{cp}</b><br>"
+            f"Electricity: <b>{elec}</b>&nbsp;&nbsp;Diesel: <b>{diesel}</b>"
+        )
+    df_map["hover"] = df_map.apply(_hover, axis=1)
 
     viable_df  = df_map[df_map["Viable?"] == "Yes"]
     nviable_df = df_map[df_map["Viable?"] == "No"]
@@ -1076,20 +1099,96 @@ if page == "Technology Viability":
     )
     st.plotly_chart(fig_map, use_container_width=True)
 
-    # ── TOP 20 BAR CHART ────────────────────────────────────────
+    # ── TOP 20 NPV BAR CHART ─────────────────────────────────────
     st.markdown('<div class="sec-head">NPV Ranking — Top 20 Countries</div>', unsafe_allow_html=True)
     top20 = df_sv.head(20)
     fig_bar = go.Figure(go.Bar(
         x=top20["Country"], y=top20["NPV ($M)"],
         marker_color=["#059669" if v >= 0 else "#fca5a5" for v in top20["NPV ($M)"]],
-        text=[f"{v:.1f}" for v in top20["NPV ($M)"]],
+        text=[f"${v:.1f}M" for v in top20["NPV ($M)"]],
         textposition="outside", textfont=dict(size=8, color=FC),
     ))
     fig_bar.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
     fig_bar.update_layout(**pl(300, mb=80))
-    fig_bar.update_layout(xaxis=dict(tickangle=-45), yaxis_title="NPV ($M)",
-        title=dict(text=f"{sel_sv} — Top 20", font=dict(size=11, color=FC), y=0.98))
+    fig_bar.update_layout(xaxis=dict(tickangle=-45), yaxis_title="NPV (USD Million)",
+        title=dict(text=f"{sel_sv} — NPV by Country, Top 20", font=dict(size=11, color=FC), y=0.98))
     st.plotly_chart(fig_bar, use_container_width=True)
+
+    # ── MBM REVENUE STACK — TOP 30 ───────────────────────────────
+    st.markdown('<div class="sec-head">MBM Revenue Breakdown by Mechanism — Top 30 Countries</div>', unsafe_allow_html=True)
+    top30_countries = df_sv.head(30)["Country"].tolist()
+    mbm_breakdown_data = {}
+    _use_real = use_real_carbon_prices
+    for _country in top30_countries:
+        if _use_real and _country in COUNTRY_CARBON_PRICES:
+            _cp = dict(st.session_state.p)
+            _rp = COUNTRY_CARBON_PRICES[_country]
+            _tm = COUNTRY_DATA_RAW.get(_country, {}).get("techs", {}).get(sel_sv, {})
+            if "ETS" in _tm: _cp["ets"] = _rp
+            elif "Carbon Tax" in _tm: _cp["ctax"] = _rp
+            _r = compute_country_excel(_country, _cp, t_sv, ti)
+        else:
+            _r = compute_country_excel(_country, st.session_state.p, t_sv, ti)
+        mbm_breakdown_data[_country] = _r["bd"]
+
+    mbm_stack_keys   = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
+    mbm_stack_colors = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0","#d1fae5","#bbf7d0","#ecfdf5"]
+
+    fig_stk = go.Figure()
+    for mkey, mcol in zip(mbm_stack_keys, mbm_stack_colors):
+        vals = [mbm_breakdown_data[c].get(mkey, 0) / 1e6 for c in top30_countries]
+        fig_stk.add_trace(go.Bar(
+            name=mkey, x=top30_countries, y=vals, marker_color=mcol,
+            text=[f"${v:.2f}M" if v > 0.5 else "" for v in vals],
+            textposition="inside", textfont=dict(size=7, color="#fff"),
+        ))
+    fig_stk.update_layout(**pl(400, mb=90))
+    fig_stk.update_layout(
+        barmode="stack", xaxis=dict(tickangle=-45, tickfont=dict(size=9)),
+        yaxis_title="MBM Revenue (USD Million)",
+        legend=dict(orientation="h", y=-0.32, font=dict(size=8.5),
+                    title=dict(text="Mechanism  ", font=dict(size=9, color=FC))),
+        title=dict(text=f"{sel_sv} — MBM Revenue Stack by Mechanism, Top 30 Countries",
+                   font=dict(size=11, color=FC), y=0.98),
+    )
+    st.plotly_chart(fig_stk, use_container_width=True)
+
+    # ── MBM vs DIRECT REVENUE COMPARISON — TOP 25 ────────────────
+    st.markdown('<div class="sec-head">MBM Revenue vs Direct Revenue — Top 25 Countries</div>', unsafe_allow_html=True)
+    top25 = df_sv.head(25)
+
+    fig_cmp = go.Figure()
+    fig_cmp.add_trace(go.Bar(
+        name="MBM Revenue", y=top25["Country"], x=top25["MBM Rev ($M)"],
+        orientation="h", marker_color="#059669",
+        text=[f"${v:.2f}M" if v > 0.3 else "" for v in top25["MBM Rev ($M)"]],
+        textposition="inside", textfont=dict(size=8, color="#fff"),
+    ))
+    fig_cmp.add_trace(go.Bar(
+        name="Direct Revenue", y=top25["Country"], x=top25["Direct Rev ($M)"],
+        orientation="h", marker_color="#34d399",
+        text=[f"${v:.2f}M" if v > 0.3 else "" for v in top25["Direct Rev ($M)"]],
+        textposition="inside", textfont=dict(size=8, color="#064e3b"),
+    ))
+    fig_cmp.add_trace(go.Bar(
+        name="Total Cost", y=top25["Country"], x=[-v for v in top25["Total Cost ($M)"]],
+        orientation="h", marker_color="#fca5a5",
+        text=[f"${v:.2f}M" if v > 0.3 else "" for v in top25["Total Cost ($M)"]],
+        textposition="inside", textfont=dict(size=8, color="#7f1d1d"),
+    ))
+    fig_cmp.add_vline(x=0, line_color="#374151", line_width=1.2)
+    fig_cmp.update_layout(**pl(560, ml=130, mb=20))
+    fig_cmp.update_layout(
+        barmode="relative",
+        xaxis_title="USD Million  (revenue positive, cost negative)",
+        xaxis=dict(tickfont=dict(size=9)),
+        yaxis=dict(autorange="reversed", tickfont=dict(size=9)),
+        legend=dict(orientation="h", y=-0.08, font=dict(size=9),
+                    title=dict(text="  ", font=dict(size=9))),
+        title=dict(text=f"{sel_sv} — Revenue Components vs Cost, Top 25 Countries",
+                   font=dict(size=11, color=FC), y=0.98),
+    )
+    st.plotly_chart(fig_cmp, use_container_width=True)
 
     # ── DATA TABLE ──────────────────────────────────────────────
     st.markdown('<div class="sec-head">Full Country Data</div>', unsafe_allow_html=True)
