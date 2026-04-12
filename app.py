@@ -7,7 +7,7 @@ import json
 
 st.set_page_config(
     page_title="MBM Revenue Model v2",
-    page_icon="🌿",
+    page_icon=":seedling:",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -159,14 +159,14 @@ TECH_CATEGORIES = [
 ]
 
 CAT_STYLE = {
-    "Clean Energy Generation":    ("cat-energy",    "⚡"),
-    "Energy Storage & Grid":      ("cat-storage",   "🔋"),
-    "Industrial Decarbonisation": ("cat-industrial","🏭"),
-    "Transport & Fuels":          ("cat-transport", "🚗"),
-    "Carbon Removal & Nature":    ("cat-carbon",    "🌿"),
-    "Building & Efficiency":      ("cat-building",  "🏢"),
-    "Circular Economy":           ("cat-circular",  "♻️"),
-    "Digital Infrastructure":     ("cat-storage",   "💻"),
+    "Clean Energy Generation":    ("cat-energy",    ""),
+    "Energy Storage & Grid":      ("cat-storage",   ""),
+    "Industrial Decarbonisation": ("cat-industrial",""),
+    "Transport & Fuels":          ("cat-transport", ""),
+    "Carbon Removal & Nature":    ("cat-carbon",    ""),
+    "Building & Efficiency":      ("cat-building",  ""),
+    "Circular Economy":           ("cat-circular",  ""),
+    "Digital Infrastructure":     ("cat-storage",   ""),
 }
 
 TECH_SHORT = [
@@ -870,9 +870,9 @@ if "selected_country" not in st.session_state: st.session_state.selected_country
 # SIDEBAR NAVIGATION  (3 pages: Tech Viability → Country Level → Setup)
 # ─────────────────────────────────────────────────────────────────
 PAGES = [
-    ("🌍  Technology Viability", "Technology Viability"),
-    ("📈  Country Level",        "Country Level"),
-    ("🔬  Setup",                "Setup"),
+    ("Technology Viability", "Technology Viability"),
+    ("Country Level",        "Country Level"),
+    ("Setup",                "Setup"),
 ]
 
 with st.sidebar:
@@ -882,7 +882,7 @@ with st.sidebar:
             <div style="width:36px;height:36px;border-radius:10px;flex-shrink:0;
                         background:linear-gradient(135deg,#059669,#34d399);
                         display:flex;align-items:center;justify-content:center;
-                        font-size:17px;box-shadow:0 3px 10px rgba(5,150,105,0.28);">🌿</div>
+                        font-size:17px;box-shadow:0 3px 10px rgba(5,150,105,0.28);">MBM</div>
             <div>
                 <div style="font-size:0.86rem;font-weight:800;color:#064e3b;letter-spacing:-0.01em;line-height:1.1;">MBM Revenue</div>
                 <div style="font-size:0.63rem;color:#9ca3af;margin-top:2px;">Model v2 · 44 Technologies</div>
@@ -906,7 +906,7 @@ with st.sidebar:
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     st.markdown('<hr style="margin:0 0 10px 0;">', unsafe_allow_html=True)
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
-    if st.button("↺  Reset Defaults", use_container_width=True, key="rst"):
+    if st.button("Reset Defaults", use_container_width=True, key="rst"):
         st.session_state.p  = dict(DEFAULT_PRICES)
         st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
         st.rerun()
@@ -930,7 +930,7 @@ if page == "Technology Viability":
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Technology Viability · 194 Countries</div>
-        <div class="page-header-title">🌍 Technology Viability</div>
+        <div class="page-header-title">Technology Viability</div>
         <div class="page-header-sub">World map of technology deployment viability across 194 countries</div>
     </div>''', unsafe_allow_html=True)
 
@@ -987,8 +987,8 @@ if page == "Technology Viability":
             "Country": country, "ISO3": cdata["iso3"], "Region": cdata["region"],
             "Active MBMs": ", ".join(cdata["techs"].get(sel_sv, {}).keys()) or "None",
             "Carbon Price": real_cp if real_cp else "—",
-            "⚡ Elec ($/kWh)": round(elec_biz, 3) if elec_biz else "—",
-            "⛽ Diesel ($/L)": round(diesel_c, 3) if diesel_c else "—",
+            "Elec ($/kWh)": round(elec_biz, 3) if elec_biz else "—",
+            "Diesel ($/L)": round(diesel_c, 3) if diesel_c else "—",
             "MBM Rev ($M)": round(r_sv["mb"]/1e6, 2),
             "Direct Rev ($M)": round(r_sv["dr"]/1e6, 2),
             "Total Rev ($M)": round(r_sv["tr"]/1e6, 2),
@@ -996,7 +996,7 @@ if page == "Technology Viability":
             "Net CF ($M)": round(r_sv["nc"]/1e6, 2),
             "R/C Ratio": round(r_sv["rc"], 2),
             "NPV ($M)": round(npv_sv/1e6, 1),
-            "Viable?": "✅ Yes" if npv_sv >= 0 else "❌ No",
+            "Viable?": "Yes" if npv_sv >= 0 else "No",
             "lat": COUNTRY_COORDS.get(country, (0,0))[0],
             "lon": COUNTRY_COORDS.get(country, (0,0))[1],
         })
@@ -1005,7 +1005,7 @@ if page == "Technology Viability":
         st.warning("No countries found."); st.stop()
 
     df_sv = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
-    viable_count = (df_sv["Viable?"] == "✅ Yes").sum()
+    viable_count = (df_sv["Viable?"] == "Yes").sum()
     total_count  = len(df_sv)
     best_country = df_sv.iloc[0]["Country"] if total_count > 0 else "N/A"
     best_val     = df_sv.iloc[0]["NPV ($M)"] if total_count > 0 else 0
@@ -1019,7 +1019,7 @@ if page == "Technology Viability":
     sv_k4.markdown(kpi(f"{viable_count/total_count*100:.0f}%" if total_count else "N/A", "Viability Rate", "All countries"), unsafe_allow_html=True)
 
     # ── COMPACT MAP (single layer, color = viable/not viable or metric) ──
-    st.markdown('<div class="sec-head">🗺️ World Viability Map</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-head">World Viability Map</div>', unsafe_allow_html=True)
 
     df_map = df_sv[df_sv["lat"] != 0].copy()
     df_map["_val"] = df_map[map_metric]
@@ -1027,12 +1027,12 @@ if page == "Technology Viability":
         f"<b>{row['Country']}</b> ({row['Region']})<br>"
         f"NPV: <b>${row['NPV ($M)']:.1f}M</b> · R/C: {row['R/C Ratio']:.2f}×<br>"
         f"MBM Rev: ${row['MBM Rev ($M)']:.2f}M · Direct: ${row['Direct Rev ($M)']:.2f}M<br>"
-        f"Carbon: {row['Carbon Price']} · ⚡{row['⚡ Elec ($/kWh)']} · ⛽{row['⛽ Diesel ($/L)']}<br>"
-        f"{'✅ Viable' if row['Viable?'] == '✅ Yes' else '❌ Not Viable'}"
+        f"Carbon: {row['Carbon Price']} · Elec: {row['Elec ($/kWh)']} · Diesel: {row['Diesel ($/L)']}<br>"
+        f"{'Viable' if row['Viable?'] == 'Yes' else 'Not Viable'}"
     ), axis=1)
 
-    viable_df  = df_map[df_map["Viable?"] == "✅ Yes"]
-    nviable_df = df_map[df_map["Viable?"] == "❌ No"]
+    viable_df  = df_map[df_map["Viable?"] == "Yes"]
+    nviable_df = df_map[df_map["Viable?"] == "No"]
 
     fig_map = go.Figure()
 
@@ -1041,7 +1041,7 @@ if page == "Technology Viability":
             lat=nviable_df["lat"], lon=nviable_df["lon"], mode="markers",
             marker=dict(size=5, color="#fca5a5", symbol="circle",
                         line=dict(width=0.5, color="#ef4444")),
-            text=nviable_df["hover"], hoverinfo="text", name=f"❌ Not Viable ({len(nviable_df)})",
+            text=nviable_df["hover"], hoverinfo="text", name=f"Not Viable ({len(nviable_df)})",
         ))
 
     if len(viable_df) > 0:
@@ -1058,7 +1058,7 @@ if page == "Technology Viability":
                               x=0.98, xanchor="left"),
                 line=dict(width=0.4, color="rgba(0,0,0,0.15)"),
             ),
-            text=viable_df["hover"], hoverinfo="text", name=f"✅ Viable ({len(viable_df)})",
+            text=viable_df["hover"], hoverinfo="text", name=f"Viable ({len(viable_df)})",
         ))
 
     fig_map.update_layout(
@@ -1093,7 +1093,7 @@ if page == "Technology Viability":
 
     # ── DATA TABLE ──────────────────────────────────────────────
     st.markdown('<div class="sec-head">Full Country Data</div>', unsafe_allow_html=True)
-    disp_cols = ["Country","Region","Active MBMs","Carbon Price","⚡ Elec ($/kWh)","⛽ Diesel ($/L)",
+    disp_cols = ["Country","Region","Active MBMs","Carbon Price","Elec ($/kWh)","Diesel ($/L)",
                  "MBM Rev ($M)","Direct Rev ($M)","Total Rev ($M)","Total Cost ($M)","Net CF ($M)","R/C Ratio","NPV ($M)","Viable?"]
     st.dataframe(df_sv[disp_cols].style.bar(subset=["NPV ($M)","Net CF ($M)","MBM Rev ($M)"],
                  color="#bbf7d0", align="mid"), use_container_width=True, height=380)
@@ -1109,7 +1109,7 @@ elif page == "Country Level":
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Country Level Analysis</div>
-        <div class="page-header-title">📈 Country Level</div>
+        <div class="page-header-title">Country Level</div>
         <div class="page-header-sub">MBM revenue breakdown, cost vs revenue, and NPV by country and technology</div>
     </div>''', unsafe_allow_html=True)
 
@@ -1150,12 +1150,12 @@ elif page == "Country Level":
     st.markdown(f"""
     <div style="background:#f0fdf4;border:1px solid #6ee7b7;border-radius:10px;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:20px;">
       <div>
-        <span style="font-size:1.0rem;font-weight:800;color:#064e3b;">🌏 {sel_country_cl}</span>
+        <span style="font-size:1.0rem;font-weight:800;color:#064e3b;">{sel_country_cl}</span>
         <span style="font-size:0.72rem;color:#6b7280;margin-left:10px;">{cdata_cl.get('region','')} · {iso3_cl}</span>
       </div>
-      {"<div style='font-size:0.78rem;color:#059669;'>💰 Carbon Price: <b>" + str(real_cp_cl) + " USD/tCO₂e</b></div>" if real_cp_cl else ""}
-      {f'<div style="font-size:0.78rem;color:#374151;">⚡ {ep_cl["eb"]:.3f}/kWh</div>' if ep_cl and ep_cl.get("eb") else ""}
-      {f'<div style="font-size:0.78rem;color:#374151;">⛽ {ep_cl["d"]:.3f}/L</div>' if ep_cl and ep_cl.get("d") else ""}
+      {"<div style='font-size:0.78rem;color:#059669;'>Carbon Price: <b>" + str(real_cp_cl) + " USD/tCO₂e</b></div>" if real_cp_cl else ""}
+      {f'<div style="font-size:0.78rem;color:#374151;">Electricity: {ep_cl["eb"]:.3f} $/kWh</div>' if ep_cl and ep_cl.get("eb") else ""}
+      {f'<div style="font-size:0.78rem;color:#374151;">Diesel: {ep_cl["d"]:.3f} $/L</div>' if ep_cl and ep_cl.get("d") else ""}
     </div>
     """, unsafe_allow_html=True)
 
@@ -1167,7 +1167,7 @@ elif page == "Country Level":
     k4.markdown(kpi(fm(r_cl["tc"]), "Total Cost"), unsafe_allow_html=True)
     k5.markdown(kpi(fm(r_cl["nc"]), "Net Cash Flow"), unsafe_allow_html=True)
     k6.markdown(kpi(f"{r_cl['rc']:.2f}×", "R/C Ratio",
-                    "✅ Viable" if r_cl["rc"] >= 1 else "❌ Below 1"), unsafe_allow_html=True)
+                    "Viable" if r_cl["rc"] >= 1 else "Below 1"), unsafe_allow_html=True)
 
     # ── MBM BREAKDOWN ────────────────────────────────────────────
     st.markdown('<div class="sec-head">MBM Revenue Breakdown — All Mechanisms</div>', unsafe_allow_html=True)
@@ -1221,7 +1221,7 @@ elif page == "Country Level":
     st.plotly_chart(fw_cl, use_container_width=True)
 
     # ── NPV SECTION ──────────────────────────────────────────────
-    st.markdown('<div class="sec-head">💰 NPV Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-head">NPV Analysis</div>', unsafe_allow_html=True)
     na1, na2, na3 = st.columns(3)
     with na1:
         mbm_growth_cl  = st.slider("MBM Growth (%/yr)", -5.0, 20.0, 5.0, 0.5, key="cl_mg") / 100
@@ -1255,7 +1255,7 @@ elif page == "Country Level":
     nn1,nn2,nn3,nn4 = st.columns(4)
     npv_disp_cl = npv_m_cl if include_mbm_cl else npv_n_cl
     nn1.markdown(kpi(f"${npv_disp_cl:.1f}M", "NPV"+(" (w/ MBM)" if include_mbm_cl else " (no MBM)"),
-                     "✅ Positive" if npv_disp_cl>=0 else "❌ Negative"), unsafe_allow_html=True)
+                     "Positive" if npv_disp_cl>=0 else "Negative"), unsafe_allow_html=True)
     nn2.markdown(kpi(f"${npv_m_cl:.1f}M", "NPV with MBM", f"CAPEX ${cap_cl/1e6:.1f}M"), unsafe_allow_html=True)
     nn3.markdown(kpi(f"${npv_n_cl:.1f}M", "NPV no MBM", f"Δ ${npv_m_cl-npv_n_cl:.1f}M"), unsafe_allow_html=True)
     nn4.markdown(kpi(f"${npv_m_cl-npv_n_cl:.1f}M", "MBM Uplift", "Value added by MBM"), unsafe_allow_html=True)
@@ -1298,7 +1298,7 @@ elif page == "Country Level":
             "CAPEX ($M)": round(cap_i/1e6,1), "Lifetime (yr)": lt_i, "WACC (%)": round(w_i*100,1),
             "NPV with MBM ($M)": round(npv_m_i/1e6,1), "NPV no MBM ($M)": round(npv_n_i/1e6,1),
             "MBM Uplift ($M)": round((npv_m_i-npv_n_i)/1e6,1),
-            "Viable?": "✅ Yes" if npv_m_i>=0 else "❌ No",
+            "Viable?": "Yes" if npv_m_i>=0 else "No",
         })
     df_npv_cl = pd.DataFrame(npv_rows_cl)
     st.dataframe(df_npv_cl.style.bar(subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"],
@@ -1314,7 +1314,7 @@ elif page == "Setup":
     st.markdown('''
     <div class="page-header">
         <div class="page-header-badge">Setup & Input</div>
-        <div class="page-header-title">🔬 Setup</div>
+        <div class="page-header-title">Setup</div>
         <div class="page-header-sub">MBM price assumptions and technology parameters</div>
     </div>''', unsafe_allow_html=True)
 
@@ -1322,7 +1322,7 @@ elif page == "Setup":
     ti = st.session_state.ti
 
     # ── MBM PRICE CONTROLS (FIRST, compact 2-panel layout) ──────
-    st.markdown('<div class="sec-head">⚙️ MBM Price Controls</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-head">MBM Price Controls</div>', unsafe_allow_html=True)
 
     # Left: sliders  |  Right: live KPI cards
     sp_left, sp_right = st.columns([3, 1])
@@ -1369,14 +1369,14 @@ elif page == "Setup":
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         st.markdown(kpi(fm(TN), "Net Cash Flow", f"R/C {TR/TC:.2f}×" if TC>0 else "—"), unsafe_allow_html=True)
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        if st.button("↺ Reset Prices", use_container_width=True, key="rst_mbm"):
+        if st.button("Reset Prices", use_container_width=True, key="rst_mbm"):
             st.session_state.p = dict(DEFAULT_PRICES)
             st.rerun()
 
     st.markdown("---")
 
     # ── TECHNOLOGY INPUTS ────────────────────────────────────────
-    st.markdown('<div class="sec-head">🔬 Technology Inputs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec-head">Technology Inputs</div>', unsafe_allow_html=True)
 
     tc1, tc2 = st.columns([1, 3])
     with tc1:
@@ -1385,8 +1385,8 @@ elif page == "Setup":
         sel  = st.selectbox("Technology", [TECHNOLOGIES[i] for i in avail], key="td_sel")
         t    = TECHNOLOGIES.index(sel)
         cat  = TECH_CATEGORIES[t]
-        cs, ci = CAT_STYLE.get(cat, ("cat-energy","⚡"))
-        st.markdown(f'<span class="cat-badge {cs}">{ci} {cat}</span>', unsafe_allow_html=True)
+        cs, ci = CAT_STYLE.get(cat, ("cat-energy",""))
+        st.markdown(f'<span class="cat-badge {cs}">{cat}</span>', unsafe_allow_html=True)
 
         # Active mechanisms chips
         mech_keys = ["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]
@@ -1394,7 +1394,7 @@ elif page == "Setup":
         for mi, mk in enumerate(mech_keys):
             lbl = MBM_LABELS[mk][0]
             val = MBM_MATRIX[t][mi]
-            if val == 'D':   html_chips += f'<span class="chip chip-d" style="font-size:0.6rem;padding:2px 7px;">✓ {lbl}</span>'
+            if val == 'D':   html_chips += f'<span class="chip chip-d" style="font-size:0.6rem;padding:2px 7px;">D: {lbl}</span>'
             elif val == 'I': html_chips += f'<span class="chip chip-i" style="font-size:0.6rem;padding:2px 7px;">~ {lbl}</span>'
         st.markdown(html_chips if html_chips else '<span style="font-size:0.72rem;color:#9ca3af;">No active MBMs</span>', unsafe_allow_html=True)
 
