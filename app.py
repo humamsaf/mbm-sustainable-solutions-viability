@@ -638,26 +638,70 @@ COUNTRY_ENERGY_PRICES = {
     "ZWE":{"g":2.23,"d":2.11,"ng":None,"er":None,"eb":None},
 }
 
-# Tech-to-energy price mapping: which energy price to override for each tech
-# eb=Electricity Business (USD/kWh), d=Diesel (USD/L), ng=Nat Gas (USD/kWh)
+# Tech-to-energy price mapping: which energy price scales the feedstock cost per country.
+# eb = Electricity Business (USD/kWh) — dominates OPEX for electro-intensive processes
+# ng = Natural Gas (USD/kWh)          — fuel/feedstock for thermal and chemical processes
+# d  = Diesel (USD/L)                 — fuel for transport fuels and maritime
+# All 44 technologies are mapped so cost varies by country energy price.
 TECH_ENERGY_OVERRIDES = {
-    "Green Hydrogen (electrolysis)": "eb",        # electricity feedstock
-    "Battery Storage (grid-scale)": "eb",
-    "Long-Duration Energy Storage (LDES)": "eb",
-    "Green Data Centers": "eb",
-    "Industrial Heat Pumps (high-temp)": "eb",
-    "Electric Vehicles (EVs)": "eb",
-    "Rail Electrification": "eb",
-    "Electric Aviation (eVTOL/short-haul)": "eb",
-    "Sustainable Aviation Fuel (SAF)": "d",       # competes with diesel/kerosene
-    "HVO (Hydrotreated Vegetable Oil)": "d",
-    "E-kerosene (aviation e-fuel)": "d",
-    "E-diesel / E-methanol (road & ship)": "d",
-    "E-diesel  (road & ship)": "d",
-    "Biogas (anaerobic digestion)": "ng",          # feedstock / market price
-    "Biomethane (upgraded to grid)": "ng",
-    "Hydrogen-based Chemicals": "eb",
-    "Green Fertilizer (low-carbon NH3)": "ng",
+    # ── Clean Energy Generation — O&M labour/parts scale with grid electricity cost
+    "Solar PV":                                    "eb",
+    "Onshore Wind":                                "eb",
+    "Offshore Wind (fixed foundation)":            "eb",
+    "Floating Offshore Wind":                      "eb",
+    "Concentrated Solar Power (CSP)":              "eb",
+    "Ocean / Tidal / Wave Energy":                 "eb",
+    "Small Modular Reactors (SMR)":                "eb",   # auxiliary power, cooling pumps
+    "Enhanced Geothermal Systems (EGS)":           "eb",   # pumping/drilling power
+
+    # ── Energy Storage & Grid — electricity is core input/output
+    "Green Hydrogen (electrolysis)":               "eb",
+    "Battery Storage (grid-scale)":                "eb",
+    "Long-Duration Energy Storage (LDES)":         "eb",
+    "Smart Grid & Grid Modernization":             "eb",
+    "HVDC Transmission":                           "eb",
+    "Virtual Power Plants (VPP)":                  "eb",
+
+    # ── Industrial Decarbonisation
+    "Low-carbon Steel & Cement":                   "eb",   # electric arc / kiln electrification
+    "Electric Arc Furnace (EAF)":                  "eb",   # directly electricity-driven
+    "Green Aluminium":                             "eb",   # electrolysis-dominant process
+    "Low-carbon Concrete":                         "eb",   # electric kiln/curing
+    "Green Fertilizer (low-carbon NH3)":           "ng",   # Haber-Bosch gas feedstock
+    "Hydrogen-based Chemicals":                    "eb",   # electrolysis-based H2 input
+    "Industrial Heat Pumps (high-temp)":           "eb",   # electricity = fuel
+
+    # ── Transport & Fuels
+    "Sustainable Aviation Fuel (SAF)":             "d",    # diesel/kerosene feedstock proxy
+    "HVO (Hydrotreated Vegetable Oil)":            "d",
+    "E-kerosene (aviation e-fuel)":                "eb",   # power-to-liquid electricity input
+    "E-Ammonia (maritime fuel)":                   "eb",   # green NH3 via electrolysis
+    "E-Methanol (maritime fuel)":                  "eb",   # power-to-methanol
+    "E-diesel  (road & ship)":                     "eb",   # power-to-liquid
+    "Biogas (anaerobic digestion)":                "ng",   # gas price as feedstock proxy
+    "Biomethane (upgraded to grid)":               "ng",
+    "Electric Vehicles (EVs)":                     "eb",
+    "Hydrogen Fuel Cells (heavy-duty)":            "eb",   # H2 from electrolysis
+    "Electric Aviation (eVTOL/short-haul)":        "eb",
+    "Rail Electrification":                        "eb",
+
+    # ── Carbon Removal & Nature
+    "Carbon Capture & Storage (CCUS)":             "eb",   # capture compression power
+    "BECCS (Bioenergy + CCS)":                     "eb",   # net electricity consumer
+    "Direct Air Capture (DAC)":                    "eb",   # highly electricity-intensive
+    "Waste-to-Energy + CCS":                       "eb",   # plant auxiliary power
+    "Reforestation / REDD+ / NBS":                 "d",    # diesel for machinery/transport
+    "Blue Carbon (mangroves, seagrass)":           "d",    # field operations / boats
+
+    # ── Building & Efficiency
+    "Building Energy Efficiency / Retrofits":      "eb",   # HVAC, lighting baseline cost
+
+    # ── Circular Economy
+    "Advanced / Chemical Recycling":               "eb",   # thermochemical process power
+    "Critical Minerals Processing (low-C)":        "eb",   # electro-refining dominant
+
+    # ── Digital Infrastructure
+    "Green Data Centers":                          "eb",   # directly electricity-driven
 }
 
 # Direct revenue override mapping: which country energy price to use as market_price proxy
