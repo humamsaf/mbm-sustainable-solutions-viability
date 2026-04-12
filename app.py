@@ -681,7 +681,7 @@ TECH_DR_PRICE_SOURCE = {
     "Long-Duration Energy Storage (LDES)": "eb_mwh",
     "Industrial Heat Pumps (high-temp)": "eb_mwh",
     "Biogas (anaerobic digestion)": "eb_mwh",
-    "Biomethane (upgraded to grid)": "ng_mwh",  # gas grid injection price
+    "Biomethane (upgraded to grid)": "ng_mwh",
     "Green Data Centers": "eb_mwh",
     "Building Energy Efficiency / Retrofits": "eb_mwh",
     "Waste-to-Energy + CCS": "eb_mwh",
@@ -694,10 +694,33 @@ TECH_DR_PRICE_SOURCE = {
     "E-Ammonia (maritime fuel)": "d_tonne",
     "E-Methanol (maritime fuel)": "d_tonne",
     "E-diesel  (road & ship)": "d_tonne",
+    # Estimated from energy price correlations
+    "Green Hydrogen (electrolysis)": "h2_from_elec",      # H2 price ~ f(electricity)
+    "Green Fertilizer (low-carbon NH3)": "nh3_from_gas",   # NH3 price ~ f(nat gas)
+    "Hydrogen-based Chemicals": "h2_from_elec",            # H2-based, similar driver
+    "Electric Vehicles (EVs)": "ev_from_gasoline",         # savings vs gasoline
+    "Hydrogen Fuel Cells": "h2_from_elec",                 # H2 fuel price
+    "BECCS (Bioenergy + CCS)": "eb_mwh",                   # sells electricity
+    "Carbon Capture & Storage (CCUS)": "ccus_service",     # service fee ~ f(energy)
+    "Direct Air Capture (DAC)": "ccus_service",
 }
 
+
 def compute_country_dr_override(tech_name, iso3, ti_market_price):
-    """Return country-adjusted direct revenue price, or None to use default."""
+    """Return country-adjusted direct revenue price, or None to use default.
+
+    Conversion notes:
+      eb_mwh      → USD/kWh × 1000 = USD/MWh
+      ng_mwh      → USD/kWh × 1000 = USD/MWh
+      d_tonne     → USD/L  × 840   = USD/tonne (diesel ρ ≈ 0.84 kg/L)
+      h2_from_elec→ Green H2 levelised price ≈ elec_cost × 55 + 500 (USD/tonne)
+                    (55 kWh/kg H2, ~500 USD/tonne non-elec capex/opex)
+      nh3_from_gas→ Green NH3 ≈ gas_cost × 10 + 250 (USD/tonne)
+                    (10 GJ/tonne NH3 ≈ 2.78 MWh, simplified)
+      ev_from_gas → EV value = gasoline savings per km × km driven
+                    proxy: 200 USD/MWh * (gasoline_price / 1.4_global_avg)
+      ccus_service→ carbon capture service ~ scales with local energy cost
+    """
     source = TECH_DR_PRICE_SOURCE.get(tech_name)
     if source is None:
         return None
@@ -708,17 +731,74 @@ def compute_country_dr_override(tech_name, iso3, ti_market_price):
     if source == "eb_mwh":
         val = ep.get("eb")
         if val is not None:
-            return round(val * 1000, 2)  # USD/kWh → USD/MWh
+            return round(val * 1000, 2)
+
     elif source == "ng_mwh":
         val = ep.get("ng")
         if val is not None:
-            return round(val * 1000, 2)  # USD/kWh → USD/MWh
+            return round(val * 1000, 2)
+        # fallback: nat gas often correlated with electricity
+        val_eb = ep.get("eb")
+        if val_eb is not None:
+            return round(val_eb * 300, 2)  # rough proxy
+
     elif source == "d_tonne":
         val = ep.get("d")
         if val is not None:
-            # Diesel USD/L → USD/tonne: diesel density ~0.84 kg/L → 1000 L/tonne
-            # multiply by 840 (approx 840 L per tonne diesel equiv)
             return round(val * 840, 0)
+
+    elif source == "h2_from_elec":
+        # H2 electrolysis: ~55 kWh/kg = 55,000 kWh/tonne
+        # Market H2 price ≈ electricity_cost_per_tonne + fixed costs
+        # fixed costs (capex/opex non-elec) ~ $500-800/tonne globally
+        val_eb = ep.get("eb")
+        if val_eb is not None:
+            elec_per_tonne = val_eb * 55000  # USD per tonne H2 from electricity alone
+            fixed_costs = 600                 # USD/tonne non-elec
+            h2_price = elec_per_tonne + fixed_costs
+            # Clamp to realistic range $800–$12,000/tonne
+            return round(max(800, min(12000, h2_price)), 0)
+
+    elif source == "nh3_from_gas":
+        # NH3 Haber-Bosch: ~10-12 GJ/tonne ≈ 2.78–3.33 MWh/tonne nat gas
+        # Market NH3 ≈ gas_cost_per_tonne + $250 fixed
+        val_ng = ep.get("ng")
+        if val_ng is not None:
+            gas_per_tonne = val_ng * 3000   # kWh/tonne × USD/kWh
+            nh3_price = gas_per_tonne + 250
+            return round(max(300, min(2500, nh3_price)), 0)
+        # fallback from electricity (green ammonia via e-H2)
+        val_eb = ep.get("eb")
+        if val_eb is not None:
+            # Green NH3 via electrolysis: ~10 MWh electricity/tonne NH3
+            nh3_price = val_eb * 10000 + 250
+            return round(max(300, min(2500, nh3_price)), 0)
+
+    elif source == "ev_from_gasoline":
+        # EV value proposition = fuel savings vs ICE
+        # Global avg gasoline ~1.4 USD/L → EV market ~200 USD/MWh value
+        # Scale linearly with country gasoline price
+        val_g = ep.get("g")
+        if val_g is not None:
+            global_avg_gasoline = 1.45  # USD/L global average
+            base_ev_value = 180         # USD/MWh at global avg price
+            ev_value = base_ev_value * (val_g / global_avg_gasoline)
+            return round(max(20, min(600, ev_value)), 1)
+        # fallback from electricity (charging cost advantage)
+        val_eb = ep.get("eb")
+        if val_eb is not None:
+            return round(val_eb * 1000, 2)
+
+    elif source == "ccus_service":
+        # Carbon capture service fee scales with local energy cost
+        # Global avg ~$80/tCO2 at ~$0.10/kWh electricity
+        # Capture energy: ~3.5 GJ/tCO2 ≈ 0.97 MWh/tCO2
+        val_eb = ep.get("eb")
+        if val_eb is not None:
+            energy_per_tco2_mwh = 0.97
+            base_service = 50            # USD/tCO2 non-energy component
+            service_price = val_eb * 1000 * energy_per_tco2_mwh + base_service
+            return round(max(40, min(300, service_price)), 1)
 
     return None
 
