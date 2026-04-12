@@ -893,31 +893,84 @@ def compute_country_excel(country_name, base_prices, t, ti):
             elif energy_field == "d":
                 cp["fuel"] = round(raw_val / 0.01, 2)
 
-    # ── FEEDSTOCK COST OVERRIDE — local energy price drives variable cost ──
-    # For techs whose primary variable cost is an energy input (electricity, gas, diesel),
-    # scale the global feedstock_cost by the country energy price ratio vs the global assumption.
-    # This makes total cost vary meaningfully across countries instead of being uniform.
+    # ── VARIABLE COST OVERRIDE — local energy price drives country-specific cost ──
+    # Two mechanisms depending on whether the tech has a non-zero feedstock_cost:
+    #
+    # (A) feedstock_cost > 0  → scale it by local/global energy price ratio
+    #     Works for: industrial processes, fuels, H2, chemicals — where fuel IS the feedstock.
+    #
+    # (B) feedstock_cost = 0  → calculate an explicit energy-based O&M add-on
+    #     Works for: Solar PV, Wind, EVs, Rail, CCUS, Green DC, etc.
+    #     These techs consume energy in operation (inverters, cooling, compression, charging)
+    #     even though their "feedstock" is free sunlight/wind.
+    #     Formula: energy_opex = installed_capacity_kw × capacity_factor × 8760h
+    #              × auxiliary_fraction × local_energy_price_per_kwh
+    #     auxiliary_fraction: share of gross output consumed internally (tech-specific)
     ti_local = {k: list(v) for k, v in ti.items()}
+
+    # Auxiliary energy consumption fraction of gross output (tech-specific, conservative estimates)
+    AUXILIARY_FRACTION = {
+        # Power generation — parasitic load / inverter losses / cooling
+        "Solar PV":                                0.02,   # ~2% inverter/tracker/cooling
+        "Onshore Wind":                            0.02,   # ~2% yaw, pitch, control
+        "Offshore Wind (fixed foundation)":        0.03,   # 3% + offshore subsea cable loss
+        "Floating Offshore Wind":                  0.04,   # mooring, extra aux systems
+        "Concentrated Solar Power (CSP)":          0.05,   # heat tracing, pumps, HTF
+        "Ocean / Tidal / Wave Energy":             0.04,   # hydraulic systems, mooring
+        "Small Modular Reactors (SMR)":            0.06,   # coolant pumps, safety systems
+        "Enhanced Geothermal Systems (EGS)":       0.10,   # high-pressure circulation pumps
+        # Storage & Grid — charging losses, control systems
+        "Battery Storage (grid-scale)":            0.04,   # round-trip losses, HVAC for BMS
+        "Long-Duration Energy Storage (LDES)":     0.05,   # compression or pumping
+        "Smart Grid & Grid Modernization":         0.02,   # sensors, comms, control
+        "HVDC Transmission":                       0.03,   # converter station power
+        "Virtual Power Plants (VPP)":              0.01,   # IT infrastructure, comms
+        # Transport — energy for operations/charging infrastructure
+        "Electric Vehicles (EVs)":                 0.08,   # charging infra, grid losses
+        "Electric Aviation (eVTOL/short-haul)":    0.06,   # charging, hangar climate
+        "Rail Electrification":                    0.04,   # substation losses, signalling
+        # Efficiency & Services
+        "Building Energy Efficiency / Retrofits":  0.05,   # residual HVAC/lighting load
+        "Green Data Centers":                      0.15,   # cooling (PUE ~1.15 overhead)
+    }
+
     if ep:
         energy_field_cost = TECH_ENERGY_OVERRIDES.get(tech_name)
         if energy_field_cost and ep.get(energy_field_cost) is not None:
-            local_val = ep[energy_field_cost]
-            if energy_field_cost == "eb":
-                local_usd_per_mwh  = local_val * 1000
-                global_usd_per_mwh = base_prices.get("electricity", 80)
-                ratio = local_usd_per_mwh / global_usd_per_mwh if global_usd_per_mwh > 0 else 1.0
-            elif energy_field_cost == "ng":
-                local_usd_per_mmbtu  = local_val * 293.07
-                global_usd_per_mmbtu = base_prices.get("gas", 8)
-                ratio = local_usd_per_mmbtu / global_usd_per_mmbtu if global_usd_per_mmbtu > 0 else 1.0
-            elif energy_field_cost == "d":
-                local_usd_per_mwh  = local_val / 0.01
-                global_usd_per_mwh = base_prices.get("fuel", 250)
-                ratio = local_usd_per_mwh / global_usd_per_mwh if global_usd_per_mwh > 0 else 1.0
+            local_val = ep[energy_field_cost]   # raw: $/kWh for eb/ng, $/L for d
+            base_feedstock = ti["feedstock_cost"][t]
+
+            if base_feedstock > 0:
+                # ── Path A: scale existing feedstock_cost by local/global ratio ──
+                if energy_field_cost == "eb":
+                    local_mwh  = local_val * 1000
+                    global_mwh = base_prices.get("electricity", 80)
+                    ratio = local_mwh / global_mwh if global_mwh > 0 else 1.0
+                elif energy_field_cost == "ng":
+                    local_mmbtu  = local_val * 293.07
+                    global_mmbtu = base_prices.get("gas", 8)
+                    ratio = local_mmbtu / global_mmbtu if global_mmbtu > 0 else 1.0
+                elif energy_field_cost == "d":
+                    local_mwh  = local_val / 0.01
+                    global_mwh = base_prices.get("fuel", 250)
+                    ratio = local_mwh / global_mwh if global_mwh > 0 else 1.0
+                else:
+                    ratio = 1.0
+                ratio = max(0.1, min(5.0, ratio))
+                ti_local["feedstock_cost"][t] = round(base_feedstock * ratio, 0)
+
             else:
-                ratio = 1.0
-            ratio = max(0.1, min(5.0, ratio))  # clamp to sensible range
-            ti_local["feedstock_cost"][t] = round(ti["feedstock_cost"][t] * ratio, 0)
+                # ── Path B: compute auxiliary energy O&M from first principles ──
+                # Only applies to electricity-consuming techs (eb field)
+                if energy_field_cost == "eb":
+                    aux_frac = AUXILIARY_FRACTION.get(tech_name, 0.03)
+                    cap_kw   = ti["installed_capacity"][t] * 1000   # MW → kW
+                    cf       = ti["capacity_factor"][t]
+                    # Annual auxiliary energy (kWh) = cap × CF × 8760h × aux_fraction
+                    annual_aux_kwh = cap_kw * cf * 8760 * aux_frac
+                    # Cost = kWh × local $/kWh
+                    energy_opex = annual_aux_kwh * local_val
+                    ti_local["feedstock_cost"][t] = round(energy_opex, 0)
 
     # ── DIRECT REVENUE PRICE OVERRIDE — local market price per country ──
     dr_override = compute_country_dr_override(tech_name, iso3, ti.get("market_price", [None]*100)[t])
