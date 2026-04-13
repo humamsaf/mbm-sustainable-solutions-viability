@@ -986,69 +986,244 @@ def compute_country_excel(country_name, base_prices, t, ti):
 # ─────────────────────────────────────────────────────────────────
 if "ti"   not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
 if "p"    not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
-if "page" not in st.session_state: st.session_state.page = "Technology Viability"
-if "selected_country" not in st.session_state: st.session_state.selected_country = None
+if "tab"  not in st.session_state: st.session_state.tab = "Technology Viability"
+if "submitted" not in st.session_state: st.session_state.submitted = False
+# pending values: sliders write here, only flushed to st.session_state.p on Submit
+if "p_pending" not in st.session_state: st.session_state.p_pending = dict(st.session_state.p)
+if "ti_pending" not in st.session_state: st.session_state.ti_pending = {k: list(v) for k,v in st.session_state.ti.items()}
 
 # ─────────────────────────────────────────────────────────────────
-# SIDEBAR NAVIGATION  (3 pages: Tech Viability → Country Level → Setup)
+# GLOBAL CSS
 # ─────────────────────────────────────────────────────────────────
-PAGES = [
-    ("Technology Viability", "Technology Viability"),
-    ("Country Level",        "Country Level"),
-    ("Setup",                "Setup"),
-]
+st.markdown("""
+<style>
+/* ── Sidebar section divider ────────────────────────────── */
+.sb-section {
+    font-size: 0.59rem; font-weight: 800; color: #b0bec5;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    margin: 20px 0 10px 0; padding-top: 14px;
+    border-top: 1.5px solid #f1f5f9;
+}
+
+/* ── Native Streamlit slider — modern green reskin ─────── */
+[data-testid="stSidebar"] [data-testid="stSlider"] > div > div > div > div {
+    background: linear-gradient(90deg, #059669, #34d399) !important;
+    height: 4px !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] [role="slider"] {
+    background: #059669 !important;
+    border: 2.5px solid #fff !important;
+    box-shadow: 0 0 0 3px rgba(5,150,105,0.22), 0 2px 8px rgba(5,150,105,0.35) !important;
+    width: 18px !important; height: 18px !important;
+    top: -7px !important;
+    transition: box-shadow 0.15s ease, transform 0.15s ease !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] [role="slider"]:hover {
+    transform: scale(1.18) !important;
+    box-shadow: 0 0 0 5px rgba(5,150,105,0.18), 0 3px 12px rgba(5,150,105,0.45) !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] > div > div {
+    background: #e8f5e9 !important; height: 4px !important; border-radius: 4px !important;
+}
+[data-testid="stSidebar"] [data-testid="stSlider"] p {
+    font-size: 0.73rem !important; font-weight: 600 !important; color: #374151 !important;
+}
+
+/* ── Tab buttons at top of main area ───────────────────── */
+[data-testid="stMainBlockContainer"] > div > div:first-child .stButton > button {
+    border-radius: 999px !important;
+    padding: 6px 22px !important;
+    font-size: 0.81rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em !important;
+    border: 1.5px solid #e2e8f0 !important;
+    transition: all 0.18s ease !important;
+}
+
+/* ── Apply / primary buttons in sidebar ─────────────────── */
+[data-testid="stSidebar"] .stButton > button {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.78rem !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: linear-gradient(135deg,#059669,#10b981) !important;
+    color: #fff !important; border: none !important;
+    box-shadow: 0 2px 10px rgba(5,150,105,0.30) !important;
+}
+[data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+    background: #f8fafc !important; color: #6b7280 !important;
+    border: 1.5px solid #e2e8f0 !important;
+}
+
+/* ── Sidebar logo ──────────────────────────────────────── */
+.sb-logo {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 4px;
+}
+.sb-logo-box {
+    width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+    background: linear-gradient(135deg,#059669,#34d399);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; font-weight: 900; color: #fff;
+    box-shadow: 0 3px 10px rgba(5,150,105,0.28); letter-spacing: 0.04em;
+}
+
+/* ── Sidebar number inputs compact ─────────────────────── */
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
+    font-size: 0.78rem !important; padding: 5px 8px !important;
+    border-radius: 6px !important; border: 1.5px solid #e2e8f0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] label {
+    font-size: 0.73rem !important; font-weight: 600 !important; color: #374151 !important;
+}
+[data-testid="stSidebar"] [data-testid="stSelectbox"] label {
+    font-size: 0.73rem !important; font-weight: 600 !important; color: #374151 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────────
+# SIDEBAR — SETUP FORM  (all inputs, Submit to apply)
+# ─────────────────────────────────────────────────────────────────
+pp = st.session_state.p_pending   # draft values
+tp = st.session_state.ti_pending  # draft tech values
 
 with st.sidebar:
     st.markdown("""
-    <div style="padding:20px 16px 14px 16px;border-bottom:1px solid #f1f5f9;">
-        <div style="display:flex;align-items:center;gap:10px;">
-            <div style="width:36px;height:36px;border-radius:10px;flex-shrink:0;
-                        background:linear-gradient(135deg,#059669,#34d399);
-                        display:flex;align-items:center;justify-content:center;
-                        font-size:17px;box-shadow:0 3px 10px rgba(5,150,105,0.28);">MBM</div>
-            <div>
-                <div style="font-size:0.86rem;font-weight:800;color:#064e3b;letter-spacing:-0.01em;line-height:1.1;">MBM Revenue</div>
-                <div style="font-size:0.63rem;color:#9ca3af;margin-top:2px;">Model v2 · 44 Technologies</div>
-            </div>
+    <div class="sb-logo">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="sb-logo-box">MBM</div>
+        <div>
+          <div style="font-size:0.84rem;font-weight:800;color:#064e3b;line-height:1.1;">MBM Revenue</div>
+          <div style="font-size:0.62rem;color:#9ca3af;margin-top:2px;">Model v2 · 44 Technologies</div>
         </div>
+      </div>
     </div>
     """, unsafe_allow_html=True)
 
-    for label, key in PAGES:
-        active = (st.session_state.page == key)
-        if active:
-            st.markdown(f"""<style>
-            [data-testid="stSidebar"] div[data-testid="stButton"]:has(button[title="{key}"]) button {{
-                background: linear-gradient(90deg,#059669,#10b981) !important;
-                color: #ffffff !important; font-weight: 700 !important;
-            }}</style>""", unsafe_allow_html=True)
-        if st.button(label, key=f"nav_{key}", use_container_width=True, help=key):
-            st.session_state.page = key
+    # ── MBM Carbon Pricing ───────────────────────────────────────
+    st.markdown('<div class="sb-section">Carbon Pricing</div>', unsafe_allow_html=True)
+    pp["ets"]    = st.slider("ETS ($/tCO₂e)",       5, 300, pp["ets"],   5,  key="sb_ets")
+    pp["ctax"]   = st.slider("Carbon Tax ($/tCO₂e)",0, 200, pp["ctax"],  5,  key="sb_ctax")
+    pp["vcm"]    = st.slider("VCM/CDM ($/tCO₂e)",   5, 300, pp["vcm"],   5,  key="sb_vcm")
+    pp["corsia"] = st.slider("CORSIA ($/tCO₂e)",     3, 100, int(pp["corsia"]), 1, key="sb_corsia")
+
+    st.markdown('<div class="sb-section">Levies & Schemes</div>', unsafe_allow_html=True)
+    pp["cbam"]    = st.slider("CBAM ($/tCO₂e)",     10, 150, pp["cbam"],    5, key="sb_cbam")
+    pp["imo"]     = st.slider("IMO Levy ($/tCO₂e)", 50, 800, pp["imo"],    10, key="sb_imo")
+    pp["feebate"] = st.slider("Feebate ($/tCO₂e)",   0, 150, pp["feebate"], 5, key="sb_feebate")
+    pp["amc"]     = st.slider("AMC ($/unit)",        50, 300, pp["amc"],   10, key="sb_amc")
+
+    st.markdown('<div class="sb-section">Contracts for Difference</div>', unsafe_allow_html=True)
+    pp["cfd_strike"]  = st.slider("CfD Strike ($/MWh)",      50, 300, pp["cfd_strike"],  5, key="sb_cfd_s")
+    pp["cfd_ref"]     = st.slider("CfD Reference ($/MWh)",   30, 200, pp["cfd_ref"],     5, key="sb_cfd_r")
+    pp["ccfd_strike"] = st.slider("CCfD Strike ($/tCO₂e)",   30, 250, pp["ccfd_strike"], 5, key="sb_ccfd_s")
+    pp["ccfd_ref"]    = st.slider("CCfD Reference ($/tCO₂e)",10, 150, pp["ccfd_ref"],    5, key="sb_ccfd_r")
+
+    st.markdown('<div class="sb-section">Energy Prices</div>', unsafe_allow_html=True)
+    pp["fuel"]        = st.slider("Fuel Mandate ($/MWh)",  100, 600, pp["fuel"],       10, key="sb_fuel")
+    pp["electricity"] = st.slider("Grid Elec. ($/MWh)",    20, 200, pp["electricity"],  5, key="sb_elec")
+    pp["gas"]         = st.slider("Nat. Gas ($/MMBtu)",      2,  30, pp["gas"],          1, key="sb_gas")
+    pp["biomass"]     = st.slider("Biomass ($/MWh)",        10, 120, pp["biomass"],      5, key="sb_bio")
+
+    # ── Technology selection + params ────────────────────────────
+    st.markdown('<div class="sb-section">Technology Parameters</div>', unsafe_allow_html=True)
+    cat_sel_sb = st.selectbox("Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="sb_cat")
+    avail_sb   = list(range(N)) if cat_sel_sb=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sel_sb]
+    sel_sb     = st.selectbox("Technology", [TECHNOLOGIES[i] for i in avail_sb], key="sb_tech")
+    t_sb       = TECHNOLOGIES.index(sel_sb)
+
+    st.markdown('<div style="margin-top:6px;margin-bottom:4px;font-size:0.7rem;font-weight:600;color:#6b7280;">Scale & Output</div>', unsafe_allow_html=True)
+    tp["annual_output"][t_sb]      = st.number_input("Annual Output (units/yr)", 0, 50_000_000, int(tp["annual_output"][t_sb]),   10000, key=f"sb_ao{t_sb}")
+    tp["installed_capacity"][t_sb] = st.number_input("Installed Capacity (MW)",  0, 10000,      int(tp["installed_capacity"][t_sb]), 10, key=f"sb_ic{t_sb}")
+    tp["capacity_factor"][t_sb]    = st.slider("Capacity Factor", 0.0, 1.0, float(tp["capacity_factor"][t_sb]), 0.01, key=f"sb_cf{t_sb}")
+    tp["project_lifetime"][t_sb]   = st.slider("Project Lifetime (yr)", 5, 60, int(tp["project_lifetime"][t_sb]), 1, key=f"sb_pl{t_sb}")
+
+    st.markdown('<div style="margin-top:8px;margin-bottom:4px;font-size:0.7rem;font-weight:600;color:#6b7280;">Cost Structure</div>', unsafe_allow_html=True)
+    tp["capex_per_kw"][t_sb]   = st.number_input("CAPEX/kW (USD/kW)", 0, 30000, int(tp["capex_per_kw"][t_sb]), 100, key=f"sb_ck{t_sb}")
+    tp["opex_pct"][t_sb]       = st.slider("OPEX (% CAPEX p.a.)", 0.0, 0.20, float(tp["opex_pct"][t_sb]), 0.005, format="%.3f", key=f"sb_op{t_sb}")
+    tp["feedstock_cost"][t_sb] = st.number_input("Feedstock (USD/yr)", 0, 50_000_000, int(tp["feedstock_cost"][t_sb]), 100000, key=f"sb_fc{t_sb}")
+    tp["other_opex"][t_sb]     = st.number_input("Other OPEX (USD/yr)", 0, 20_000_000, int(tp["other_opex"][t_sb]), 100000, key=f"sb_ov{t_sb}")
+    tp["wacc"][t_sb]           = st.slider("WACC", 0.01, 0.25, float(tp["wacc"][t_sb]), 0.005, format="%.3f", key=f"sb_wc{t_sb}")
+
+    st.markdown('<div style="margin-top:8px;margin-bottom:4px;font-size:0.7rem;font-weight:600;color:#6b7280;">Revenue Drivers</div>', unsafe_allow_html=True)
+    tp["market_price"][t_sb]      = st.number_input("Market Price (USD/unit)", 0, 200000, int(tp["market_price"][t_sb]), 10, key=f"sb_mp{t_sb}")
+    tp["co2_abated_factor"][t_sb] = st.slider("CO₂ Abated / Unit", 0.0, 2.0, float(tp["co2_abated_factor"][t_sb]), 0.01, key=f"sb_ca{t_sb}")
+
+    st.session_state.p_pending  = pp
+    st.session_state.ti_pending = tp
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("Apply", use_container_width=True, key="sb_submit", type="primary"):
+            st.session_state.p  = dict(pp)
+            st.session_state.ti = {k: list(v) for k,v in tp.items()}
+            st.session_state.submitted = True
+            st.rerun()
+    with col_b:
+        if st.button("Reset", use_container_width=True, key="sb_reset"):
+            st.session_state.p         = dict(DEFAULT_PRICES)
+            st.session_state.ti        = {k: list(v) for k,v in DEFAULTS.items()}
+            st.session_state.p_pending  = dict(DEFAULT_PRICES)
+            st.session_state.ti_pending = {k: list(v) for k,v in DEFAULTS.items()}
             st.rerun()
 
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    st.markdown('<hr style="margin:0 0 10px 0;">', unsafe_allow_html=True)
-    st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
-    if st.button("Reset Defaults", use_container_width=True, key="rst"):
-        st.session_state.p  = dict(DEFAULT_PRICES)
-        st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+    # Applied confirmation
+    if st.session_state.submitted:
+        st.markdown("""
+        <div style="margin-top:8px;padding:7px 12px;background:#f0fdf4;border-radius:8px;
+                    border-left:3px solid #059669;font-size:0.72rem;color:#065f46;font-weight:600;">
+          Parameters applied to analysis.
+        </div>""", unsafe_allow_html=True)
+        st.session_state.submitted = False
 
 # ─────────────────────────────────────────────────────────────────
-# PRE-COMPUTE
+# PRE-COMPUTE  (always from committed st.session_state.p / .ti)
 # ─────────────────────────────────────────────────────────────────
 AR  = [compute(st.session_state.p, i, st.session_state.ti) for i in range(N)]
 TR  = sum(r["tr"] for r in AR); TM = sum(r["mb"] for r in AR)
 TD  = sum(r["dr"] for r in AR); TC = sum(r["tc"] for r in AR)
-TN  = sum(r["nc"] for r in AR); TCO = sum(r["co2"] for r in AR)
-page = st.session_state.page
+TN  = sum(r["nc"] for r in AR)
 
+# ─────────────────────────────────────────────────────────────────
+# MAIN AREA — Tab strip + page content
+# ─────────────────────────────────────────────────────────────────
+# Custom styled tab strip (2 tabs)
+tab_labels = ["Technology Viability", "Country Level"]
+cur_tab    = st.session_state.tab
 
-# ═════════════════════════════════════════════════════════════════
-# PAGE 1: TECHNOLOGY VIABILITY  (was Country Viability, now FIRST)
-# Compact map (single layer, viability color), simple filters in 1 row
-# ═════════════════════════════════════════════════════════════════
+# Render tab buttons via columns
+_tc1, _tc2, _tspc = st.columns([1.6, 1.4, 5])
+with _tc1:
+    if st.button(
+        "Technology Viability",
+        key="tab_tv",
+        use_container_width=True,
+        type="primary" if cur_tab == "Technology Viability" else "secondary",
+    ):
+        st.session_state.tab = "Technology Viability"
+        st.rerun()
+with _tc2:
+    if st.button(
+        "Country Level",
+        key="tab_cl",
+        use_container_width=True,
+        type="primary" if cur_tab == "Country Level" else "secondary",
+    ):
+        st.session_state.tab = "Country Level"
+        st.rerun()
+
+st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+st.markdown('<hr style="margin:0 0 22px 0;border-color:#e2e8f0;">', unsafe_allow_html=True)
+
+page = st.session_state.tab
+
+# ═══════ PAGE: TECHNOLOGY VIABILITY ═══════
 if page == "Technology Viability":
     st.markdown('''
     <div class="page-header">
@@ -1323,10 +1498,7 @@ if page == "Technology Viability":
                        "technology_viability.csv", "text/csv")
 
 
-# ═════════════════════════════════════════════════════════════════
-# PAGE 2: COUNTRY LEVEL  (was Result, now has country+tech filter at top)
-# Country+Tech filter → KPIs → MBM Breakdown → Cost&Rev → NPV (scroll)
-# ═════════════════════════════════════════════════════════════════
+# ═══════ PAGE: COUNTRY LEVEL ═══════
 elif page == "Country Level":
     st.markdown('''
     <div class="page-header">
@@ -1526,116 +1698,3 @@ elif page == "Country Level":
     st.dataframe(df_npv_cl.style.bar(subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"],
                  color="#bbf7d0", align="mid"), use_container_width=True, height=480)
     st.download_button("⬇ Download NPV CSV", df_npv_cl.to_csv(index=False).encode(), "npv_analysis.csv", "text/csv")
-
-
-# ═════════════════════════════════════════════════════════════════
-# PAGE 3: SETUP  (MBM Price Controls FIRST (compact), then Tech Input)
-# No Results section. Sliders in compact 4-col grid. KPI cards live update.
-# ═════════════════════════════════════════════════════════════════
-elif page == "Setup":
-    st.markdown('''
-    <div class="page-header">
-        <div class="page-header-badge">Setup & Input</div>
-        <div class="page-header-title">Setup</div>
-        <div class="page-header-sub">MBM price assumptions and technology parameters</div>
-    </div>''', unsafe_allow_html=True)
-
-    p  = st.session_state.p
-    ti = st.session_state.ti
-
-    # ── MBM PRICE CONTROLS (FIRST, compact 2-panel layout) ──────
-    st.markdown('<div class="sec-head">MBM Price Controls</div>', unsafe_allow_html=True)
-
-    # Left: sliders  |  Right: live KPI cards
-    sp_left, sp_right = st.columns([3, 1])
-
-    with sp_left:
-        sc1, sc2, sc3, sc4 = st.columns(4)
-        with sc1:
-            st.markdown('<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Carbon Pricing</div>', unsafe_allow_html=True)
-            p["ets"]    = st.slider("ETS ($/tCO₂e)",    5,  300, p["ets"],   5,  key="mb_ets",   help="ETS / Carbon Market price")
-            p["ctax"]   = st.slider("Carbon Tax ($/t)",  0,  200, p["ctax"],  5,  key="mb_ctax")
-            p["vcm"]    = st.slider("VCM/CDM ($/t)",     5,  300, p["vcm"],   5,  key="mb_vcm")
-            p["corsia"] = st.slider("CORSIA ($/t)",       3,  100, int(p["corsia"]), 1, key="mb_corsia")
-        with sc2:
-            st.markdown('<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Levies & Schemes</div>', unsafe_allow_html=True)
-            p["cbam"]    = st.slider("CBAM ($/tCO₂e)",   10, 150, p["cbam"],    5, key="mb_cbam")
-            p["imo"]     = st.slider("IMO Levy ($/t)",    50, 800, p["imo"],    10, key="mb_imo")
-            p["feebate"] = st.slider("Feebate ($/t)",      0, 150, p["feebate"], 5, key="mb_feebate")
-            p["amc"]     = st.slider("AMC ($/unit)",      50, 300, p["amc"],    10, key="mb_amc")
-        with sc3:
-            st.markdown('<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">CfD / CCfD</div>', unsafe_allow_html=True)
-            p["cfd_strike"]  = st.slider("CfD Strike ($/MWh)",      50, 300, p["cfd_strike"],  5, key="mb_cfd_s")
-            p["cfd_ref"]     = st.slider("CfD Reference ($/MWh)",   30, 200, p["cfd_ref"],     5, key="mb_cfd_r")
-            p["ccfd_strike"] = st.slider("CCfD Strike ($/t)",       30, 250, p["ccfd_strike"], 5, key="mb_ccfd_s")
-            p["ccfd_ref"]    = st.slider("CCfD Reference ($/t)",    10, 150, p["ccfd_ref"],    5, key="mb_ccfd_r")
-        with sc4:
-            st.markdown('<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Energy</div>', unsafe_allow_html=True)
-            p["fuel"]        = st.slider("Fuel Mandate ($/MWh)",  100, 600, p["fuel"],       10, key="mb_fuel")
-            p["electricity"] = st.slider("Grid Elec. ($/MWh)",    20, 200, p["electricity"],  5, key="mb_elec")
-            p["gas"]         = st.slider("Nat. Gas ($/MMBtu)",      2,  30, p["gas"],          1, key="mb_gas")
-            p["biomass"]     = st.slider("Biomass ($/MWh)",        10, 120, p["biomass"],      5, key="mb_bio")
-
-    st.session_state.p = p
-
-    # Live KPI cards in right panel — portfolio-wide totals
-    with sp_right:
-        st.markdown('<div style="font-size:0.68rem;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Portfolio Summary</div>', unsafe_allow_html=True)
-        st.markdown(kpi(fm(TR), "Total Revenue", "Portfolio-wide"), unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown(kpi(fm(TM), "MBM Revenue", "All mechanisms"), unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown(kpi(fm(TD), "Direct Revenue", "Market sales"), unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown(kpi(fm(TC), "Total Cost", "Annual"), unsafe_allow_html=True)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        st.markdown(kpi(fm(TN), "Net Cash Flow", f"R/C {TR/TC:.2f}×" if TC>0 else "—"), unsafe_allow_html=True)
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        if st.button("Reset Prices", use_container_width=True, key="rst_mbm"):
-            st.session_state.p = dict(DEFAULT_PRICES)
-            st.rerun()
-
-    st.markdown("---")
-
-    # ── TECHNOLOGY INPUTS ────────────────────────────────────────
-    st.markdown('<div class="sec-head">Technology Inputs</div>', unsafe_allow_html=True)
-
-    tc1, tc2 = st.columns([1, 3])
-    with tc1:
-        cat_sel = st.selectbox("Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="td_cat")
-        avail = list(range(N)) if cat_sel=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sel]
-        sel  = st.selectbox("Technology", [TECHNOLOGIES[i] for i in avail], key="td_sel")
-        t    = TECHNOLOGIES.index(sel)
-        cat  = TECH_CATEGORIES[t]
-        cs, ci = CAT_STYLE.get(cat, ("cat-energy",""))
-        st.markdown(f'<span class="cat-badge {cs}">{cat}</span>', unsafe_allow_html=True)
-
-        # Active mechanisms chips
-        mech_keys = ["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]
-        html_chips = ""
-        for mi, mk in enumerate(mech_keys):
-            lbl = MBM_LABELS[mk][0]
-            val = MBM_MATRIX[t][mi]
-            if val == 'D':   html_chips += f'<span class="chip chip-d" style="font-size:0.6rem;padding:2px 7px;">D: {lbl}</span>'
-            elif val == 'I': html_chips += f'<span class="chip chip-i" style="font-size:0.6rem;padding:2px 7px;">~ {lbl}</span>'
-        st.markdown(html_chips if html_chips else '<span style="font-size:0.72rem;color:#9ca3af;">No active MBMs</span>', unsafe_allow_html=True)
-
-    with tc2:
-        ti_c1, ti_c2, ti_c3 = st.columns(3)
-        with ti_c1:
-            st.markdown("**Scale & Output**")
-            ti["annual_output"][t]      = st.number_input("Annual Output (units/yr)", 0, 50_000_000, int(ti["annual_output"][t]), 10000, key=f"ao{t}")
-            ti["installed_capacity"][t] = st.number_input("Installed Capacity (MW)", 0, 10000, int(ti["installed_capacity"][t]), 10, key=f"ic{t}")
-            ti["capacity_factor"][t]    = st.slider("Capacity Factor", 0.0, 1.0, ti["capacity_factor"][t], 0.01, key=f"cf{t}")
-            ti["project_lifetime"][t]   = st.slider("Project Lifetime (yr)", 5, 60, int(ti["project_lifetime"][t]), 1, key=f"pl{t}")
-        with ti_c2:
-            st.markdown("**Cost Structure**")
-            ti["capex_per_kw"][t]   = st.number_input("CAPEX/kW (USD/kW)", 0, 30000, int(ti["capex_per_kw"][t]), 100, key=f"ck{t}")
-            ti["opex_pct"][t]       = st.slider("OPEX (% CAPEX p.a.)", 0.0, 0.20, ti["opex_pct"][t], 0.005, format="%.3f", key=f"op{t}")
-            ti["feedstock_cost"][t] = st.number_input("Feedstock (USD/yr)", 0, 50_000_000, int(ti["feedstock_cost"][t]), 100000, key=f"fc{t}")
-            ti["other_opex"][t]     = st.number_input("Other OPEX (USD/yr)", 0, 20_000_000, int(ti["other_opex"][t]), 100000, key=f"ov{t}")
-            ti["wacc"][t]           = st.slider("WACC", 0.01, 0.25, ti["wacc"][t], 0.005, format="%.3f", key=f"wc{t}")
-        with ti_c3:
-            st.markdown("**Revenue Drivers**")
-            ti["market_price"][t]      = st.number_input("Market Price (USD/unit)", 0, 200000, int(ti["market_price"][t]), 10, key=f"mp{t}")
-            ti["co2_abated_factor"][t] = st.slider("CO₂ Abated / Unit", 0.0, 2.0, ti["co2_abated_factor"][t], 0.01, key=f"ca{t}")
