@@ -1269,24 +1269,33 @@ if page == "setup":
         font-size: 0.78rem; color: #6b7280; line-height: 1.55; font-weight: 400;
     }
 
-    /* Modern number input cards */
+    /* Modern number input cards — dark slate style */
     .input-grid { display: grid; gap: 10px; }
     .input-item {
-        background: #f8fafc; border: 1.5px solid #e2e8f0;
-        border-radius: 10px; padding: 10px 14px 8px;
-        transition: border-color 0.15s, box-shadow 0.15s;
+        background: #0f1f1a;
+        border: 1px solid #1a3329;
+        border-radius: 12px; padding: 12px 16px 10px;
+        transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+        position: relative;
+    }
+    .input-item::before {
+        content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+        width: 3px; border-radius: 12px 0 0 12px;
+        background: linear-gradient(180deg, #059669, #34d399);
+        opacity: 0; transition: opacity 0.18s;
     }
     .input-item:focus-within {
         border-color: #059669;
-        box-shadow: 0 0 0 3px rgba(5,150,105,0.10);
-        background: #fff;
+        background: #0d1f1b;
+        box-shadow: 0 0 0 2px rgba(5,150,105,0.18), 0 4px 16px rgba(5,150,105,0.12);
     }
+    .input-item:focus-within::before { opacity: 1; }
     .input-lbl {
-        font-size: 0.65rem; font-weight: 700; color: #9ca3af;
-        text-transform: uppercase; letter-spacing: 0.09em;
-        margin-bottom: 2px;
+        font-size: 0.6rem; font-weight: 700; color: #4b7c6a;
+        text-transform: uppercase; letter-spacing: 0.11em;
+        margin-bottom: 3px;
     }
-    /* Override Streamlit number input inside .input-item to look embedded */
+    /* Override Streamlit number input inside .input-item */
     .input-item [data-testid="stNumberInput"] {
         background: transparent !important;
     }
@@ -1296,16 +1305,31 @@ if page == "setup":
     .input-item [data-testid="stNumberInput"] input {
         background: transparent !important;
         border: none !important; border-radius: 0 !important;
-        padding: 0 !important; font-size: 1.05rem !important;
-        font-weight: 700 !important; color: #064e3b !important;
-        box-shadow: none !important;
+        padding: 0 !important; font-size: 1.1rem !important;
+        font-weight: 700 !important; color: #e6fff9 !important;
+        box-shadow: none !important; caret-color: #34d399 !important;
+    }
+    .input-item [data-testid="stNumberInput"] input::selection {
+        background: rgba(52,211,153,0.25);
     }
     .input-item [data-testid="stNumberInput"] > div {
         background: transparent !important;
         border: none !important; border-radius: 0 !important;
         padding: 0 !important;
     }
-    /* Section cards */
+    /* +/− stepper buttons inside dark card */
+    .input-item [data-testid="stNumberInput"] button {
+        background: #1a3329 !important;
+        border: 1px solid #264d3a !important;
+        color: #34d399 !important; border-radius: 6px !important;
+        font-size: 0.9rem !important; font-weight: 700 !important;
+        transition: background 0.12s, transform 0.1s !important;
+    }
+    .input-item [data-testid="stNumberInput"] button:hover {
+        background: #1f4033 !important; transform: scale(1.1) !important;
+    }
+
+    /* Section header above each column */
     .param-section {
         background: #ffffff; border: 1.5px solid #f1f5f9;
         border-radius: 14px; padding: 22px 24px 20px;
@@ -1314,7 +1338,7 @@ if page == "setup":
     .param-section-hdr {
         font-size: 0.67rem; font-weight: 800; color: #059669;
         text-transform: uppercase; letter-spacing: 0.12em;
-        margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+        margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
     }
     .param-section-hdr::after {
         content: ""; flex:1; height: 1.5px;
