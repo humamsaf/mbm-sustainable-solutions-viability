@@ -1269,30 +1269,29 @@ if page == "setup":
         font-size: 0.78rem; color: #6b7280; line-height: 1.55; font-weight: 400;
     }
 
-    /* Input cards — gradient background */
+    /* Input cards — rich dark-to-light green gradient */
     .input-item {
-        background: linear-gradient(135deg, #f0fdf9 0%, #e6f7f2 60%, #d1fae5 100%);
-        border: 1px solid #a7f3d0;
+        background: linear-gradient(135deg, #064e3b 0%, #065f46 40%, #059669 75%, #34d399 100%);
+        border: 1px solid #047857;
         border-radius: 12px; padding: 12px 16px 10px;
         margin-bottom: 8px;
-        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+        transition: box-shadow 0.15s;
     }
     .input-item:focus-within {
-        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #a7f3d0 100%);
-        border-color: #059669;
-        box-shadow: 0 0 0 3px rgba(5,150,105,0.14), 0 4px 14px rgba(5,150,105,0.1);
+        box-shadow: 0 0 0 3px rgba(52,211,153,0.35), 0 6px 20px rgba(5,150,105,0.25);
+        border-color: #34d399;
     }
     .input-lbl {
-        font-size: 0.59rem; font-weight: 800; color: #059669;
-        text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 3px;
+        font-size: 0.59rem; font-weight: 800; color: rgba(255,255,255,0.65);
+        text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px;
     }
     .input-item [data-testid="stNumberInput"] { background: transparent !important; }
     .input-item [data-testid="stNumberInput"] label { display: none !important; }
     .input-item [data-testid="stNumberInput"] input {
         background: transparent !important;
         border: none !important; border-radius: 0 !important;
-        padding: 0 !important; font-size: 1.15rem !important;
-        font-weight: 800 !important; color: #064e3b !important;
+        padding: 0 !important; font-size: 1.18rem !important;
+        font-weight: 800 !important; color: #ffffff !important;
         box-shadow: none !important;
     }
     .input-item [data-testid="stNumberInput"] > div {
@@ -1300,14 +1299,14 @@ if page == "setup":
         border: none !important; border-radius: 0 !important; padding: 0 !important;
     }
     .input-item [data-testid="stNumberInput"] button {
-        background: rgba(255,255,255,0.7) !important;
-        border: 1px solid #6ee7b7 !important; color: #059669 !important;
-        border-radius: 6px !important; font-weight: 700 !important;
-        backdrop-filter: blur(4px) !important;
+        background: rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        color: #ffffff !important; border-radius: 6px !important;
+        font-weight: 700 !important; backdrop-filter: blur(4px) !important;
         transition: background 0.12s, transform 0.1s !important;
     }
     .input-item [data-testid="stNumberInput"] button:hover {
-        background: rgba(255,255,255,0.95) !important; transform: scale(1.08) !important;
+        background: rgba(255,255,255,0.28) !important; transform: scale(1.1) !important;
     }
 
     /* Section header */
