@@ -1216,51 +1216,33 @@ if page == "setup":
 
     with mbm_c1:
         st.markdown('<div class="setup-card-title">Carbon Pricing</div>', unsafe_allow_html=True)
-        pd_["ets"]    = st.slider("ETS ($/tCO₂e)",       5, 300, pd_["ets"],   5,  key="sp_ets")
-        pd_["ctax"]   = st.slider("Carbon Tax ($/tCO₂e)",0, 200, pd_["ctax"],  5,  key="sp_ctax")
-        pd_["vcm"]    = st.slider("VCM/CDM ($/tCO₂e)",   5, 300, pd_["vcm"],   5,  key="sp_vcm")
-        pd_["corsia"] = st.slider("CORSIA ($/tCO₂e)",     3, 100, int(pd_["corsia"]), 1, key="sp_corsia")
+        pd_["ets"]    = st.number_input("ETS ($/tCO₂e)",       min_value=5,   max_value=300, value=int(pd_["ets"]),    step=5,  key="sp_ets")
+        pd_["ctax"]   = st.number_input("Carbon Tax ($/tCO₂e)", min_value=0,   max_value=200, value=int(pd_["ctax"]),   step=5,  key="sp_ctax")
+        pd_["vcm"]    = st.number_input("VCM/CDM ($/tCO₂e)",   min_value=5,   max_value=300, value=int(pd_["vcm"]),    step=5,  key="sp_vcm")
+        pd_["corsia"] = st.number_input("CORSIA ($/tCO₂e)",     min_value=3,   max_value=100, value=int(pd_["corsia"]), step=1,  key="sp_corsia")
 
     with mbm_c2:
         st.markdown('<div class="setup-card-title">Levies & Schemes</div>', unsafe_allow_html=True)
-        pd_["cbam"]    = st.slider("CBAM ($/tCO₂e)",     10, 150, pd_["cbam"],    5, key="sp_cbam")
-        pd_["imo"]     = st.slider("IMO Levy ($/tCO₂e)", 50, 800, pd_["imo"],    10, key="sp_imo")
-        pd_["feebate"] = st.slider("Feebate ($/tCO₂e)",   0, 150, pd_["feebate"], 5, key="sp_feebate")
-        pd_["amc"]     = st.slider("AMC ($/unit)",        50, 300, pd_["amc"],   10, key="sp_amc")
+        pd_["cbam"]    = st.number_input("CBAM ($/tCO₂e)",     min_value=10,  max_value=150, value=int(pd_["cbam"]),    step=5,  key="sp_cbam")
+        pd_["imo"]     = st.number_input("IMO Levy ($/tCO₂e)", min_value=50,  max_value=800, value=int(pd_["imo"]),     step=10, key="sp_imo")
+        pd_["feebate"] = st.number_input("Feebate ($/tCO₂e)",   min_value=0,   max_value=150, value=int(pd_["feebate"]), step=5,  key="sp_feebate")
+        pd_["amc"]     = st.number_input("AMC ($/unit)",        min_value=50,  max_value=300, value=int(pd_["amc"]),     step=10, key="sp_amc")
 
     with mbm_c3:
         st.markdown('<div class="setup-card-title">Contracts for Difference</div>', unsafe_allow_html=True)
-        pd_["cfd_strike"]  = st.slider("CfD Strike ($/MWh)",       50, 300, pd_["cfd_strike"],  5, key="sp_cfd_s")
-        pd_["cfd_ref"]     = st.slider("CfD Reference ($/MWh)",    30, 200, pd_["cfd_ref"],     5, key="sp_cfd_r")
-        pd_["ccfd_strike"] = st.slider("CCfD Strike ($/tCO₂e)",    30, 250, pd_["ccfd_strike"], 5, key="sp_ccfd_s")
-        pd_["ccfd_ref"]    = st.slider("CCfD Reference ($/tCO₂e)", 10, 150, pd_["ccfd_ref"],    5, key="sp_ccfd_r")
+        pd_["cfd_strike"]  = st.number_input("CfD Strike ($/MWh)",       min_value=50,  max_value=300, value=int(pd_["cfd_strike"]),  step=5,  key="sp_cfd_s")
+        pd_["cfd_ref"]     = st.number_input("CfD Reference ($/MWh)",    min_value=30,  max_value=200, value=int(pd_["cfd_ref"]),     step=5,  key="sp_cfd_r")
+        pd_["ccfd_strike"] = st.number_input("CCfD Strike ($/tCO₂e)",    min_value=30,  max_value=250, value=int(pd_["ccfd_strike"]), step=5,  key="sp_ccfd_s")
+        pd_["ccfd_ref"]    = st.number_input("CCfD Reference ($/tCO₂e)", min_value=10,  max_value=150, value=int(pd_["ccfd_ref"]),    step=5,  key="sp_ccfd_r")
 
     with mbm_c4:
         st.markdown('<div class="setup-card-title">Energy Prices</div>', unsafe_allow_html=True)
-        pd_["fuel"]        = st.slider("Fuel Mandate ($/MWh)", 100, 600, pd_["fuel"],       10, key="sp_fuel")
-        pd_["electricity"] = st.slider("Grid Elec. ($/MWh)",   20, 200, pd_["electricity"],  5, key="sp_elec")
-        pd_["gas"]         = st.slider("Nat. Gas ($/MMBtu)",     2,  30, pd_["gas"],          1, key="sp_gas")
-        pd_["biomass"]     = st.slider("Biomass ($/MWh)",       10, 120, pd_["biomass"],      5, key="sp_bio")
+        pd_["fuel"]        = st.number_input("Fuel Mandate ($/MWh)", min_value=100, max_value=600, value=int(pd_["fuel"]),        step=10, key="sp_fuel")
+        pd_["electricity"] = st.number_input("Grid Elec. ($/MWh)",   min_value=20,  max_value=200, value=int(pd_["electricity"]),  step=5,  key="sp_elec")
+        pd_["gas"]         = st.number_input("Nat. Gas ($/MMBtu)",     min_value=2,   max_value=30,  value=int(pd_["gas"]),          step=1,  key="sp_gas")
+        pd_["biomass"]     = st.number_input("Biomass ($/MWh)",       min_value=10,  max_value=120, value=int(pd_["biomass"]),      step=5,  key="sp_bio")
 
     st.session_state.p_draft = pd_
-
-    # ── LIVE PREVIEW KPIs (computed from draft) ──────────────────
-    AR_preview = [compute(pd_, i, td_) for i in range(N)]
-    TR_p = sum(r["tr"] for r in AR_preview)
-    TM_p = sum(r["mb"] for r in AR_preview)
-    TD_p = sum(r["dr"] for r in AR_preview)
-    TC_p = sum(r["tc"] for r in AR_preview)
-    TN_p = sum(r["nc"] for r in AR_preview)
-
-    st.markdown('<div class="sec-head" style="margin-top:8px;">Live Preview — Portfolio Totals</div>', unsafe_allow_html=True)
-    pv1, pv2, pv3, pv4, pv5 = st.columns(5)
-    pv1.markdown(kpi(fm(TR_p), "Total Revenue",  "Portfolio"), unsafe_allow_html=True)
-    pv2.markdown(kpi(fm(TM_p), "MBM Revenue",    "All mechanisms"), unsafe_allow_html=True)
-    pv3.markdown(kpi(fm(TD_p), "Direct Revenue", "Market sales"), unsafe_allow_html=True)
-    pv4.markdown(kpi(fm(TC_p), "Total Cost",     "Annual"), unsafe_allow_html=True)
-    pv5.markdown(kpi(fm(TN_p), "Net Cash Flow",  f"R/C {TR_p/TC_p:.2f}x" if TC_p > 0 else "—"), unsafe_allow_html=True)
-
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
     # ── TECHNOLOGY PARAMETERS ───────────────────────────────────
     st.markdown('<div class="sec-head">Technology Parameters</div>', unsafe_allow_html=True)
@@ -1291,19 +1273,19 @@ if page == "setup":
             st.markdown("**Scale & Output**")
             td_["annual_output"][t_sp]      = st.number_input("Annual Output (units/yr)", 0, 50_000_000, int(td_["annual_output"][t_sp]),   10000, key=f"sp_ao{t_sp}")
             td_["installed_capacity"][t_sp] = st.number_input("Installed Capacity (MW)",  0, 10000,      int(td_["installed_capacity"][t_sp]),  10,  key=f"sp_ic{t_sp}")
-            td_["capacity_factor"][t_sp]    = st.slider("Capacity Factor", 0.0, 1.0, float(td_["capacity_factor"][t_sp]), 0.01, key=f"sp_cf{t_sp}")
-            td_["project_lifetime"][t_sp]   = st.slider("Project Lifetime (yr)", 5, 60, int(td_["project_lifetime"][t_sp]), 1, key=f"sp_pl{t_sp}")
+            td_["capacity_factor"][t_sp]    = st.number_input("Capacity Factor", min_value=0.0, max_value=1.0, value=float(td_["capacity_factor"][t_sp]), step=0.01, format="%.2f", key=f"sp_cf{t_sp}")
+            td_["project_lifetime"][t_sp]   = st.number_input("Project Lifetime (yr)", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1, key=f"sp_pl{t_sp}")
         with ti_c2:
             st.markdown("**Cost Structure**")
             td_["capex_per_kw"][t_sp]   = st.number_input("CAPEX/kW (USD/kW)", 0, 30000, int(td_["capex_per_kw"][t_sp]), 100, key=f"sp_ck{t_sp}")
-            td_["opex_pct"][t_sp]       = st.slider("OPEX (% CAPEX p.a.)", 0.0, 0.20, float(td_["opex_pct"][t_sp]), 0.005, format="%.3f", key=f"sp_op{t_sp}")
+            td_["opex_pct"][t_sp]       = st.number_input("OPEX (% CAPEX p.a.)", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f", key=f"sp_op{t_sp}")
             td_["feedstock_cost"][t_sp] = st.number_input("Feedstock (USD/yr)", 0, 50_000_000, int(td_["feedstock_cost"][t_sp]), 100000, key=f"sp_fc{t_sp}")
             td_["other_opex"][t_sp]     = st.number_input("Other OPEX (USD/yr)", 0, 20_000_000, int(td_["other_opex"][t_sp]), 100000, key=f"sp_ov{t_sp}")
-            td_["wacc"][t_sp]           = st.slider("WACC", 0.01, 0.25, float(td_["wacc"][t_sp]), 0.005, format="%.3f", key=f"sp_wc{t_sp}")
+            td_["wacc"][t_sp]           = st.number_input("WACC", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f", key=f"sp_wc{t_sp}")
         with ti_c3:
             st.markdown("**Revenue Drivers**")
             td_["market_price"][t_sp]      = st.number_input("Market Price (USD/unit)", 0, 200000, int(td_["market_price"][t_sp]), 10, key=f"sp_mp{t_sp}")
-            td_["co2_abated_factor"][t_sp] = st.slider("CO₂ Abated / Unit", 0.0, 2.0, float(td_["co2_abated_factor"][t_sp]), 0.01, key=f"sp_ca{t_sp}")
+            td_["co2_abated_factor"][t_sp] = st.number_input("CO₂ Abated / Unit", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f", key=f"sp_ca{t_sp}")
 
     st.session_state.ti_draft = td_
 
