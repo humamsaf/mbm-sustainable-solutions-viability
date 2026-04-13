@@ -1153,7 +1153,7 @@ with st.sidebar:
 
     cur = st.session_state.tab
     nav_items = [
-        ("setup",                "Parameter Setup"),
+        ("setup",                "Start"),
         ("Technology Viability", "Technology Viability"),
         ("Country Level",        "Country Level"),
     ]
@@ -1198,49 +1198,234 @@ if page == "setup":
     pd_ = st.session_state.p_draft
     td_ = st.session_state.ti_draft
 
+    # ── EXTRA CSS for this page ───────────────────────────────────
     st.markdown("""
-    <div style="margin-bottom:24px;">
-      <div style="font-size:1.5rem;font-weight:800;color:#064e3b;letter-spacing:-0.02em;line-height:1.1;">
-        Parameter Setup
+    <style>
+    /* Hero section */
+    .hero-wrap {
+        background: linear-gradient(135deg, #064e3b 0%, #065f46 45%, #059669 100%);
+        border-radius: 18px; padding: 52px 56px 48px;
+        margin-bottom: 40px; position: relative; overflow: hidden;
+    }
+    .hero-wrap::before {
+        content: ""; position: absolute;
+        right: -80px; top: -80px; width: 320px; height: 320px;
+        border-radius: 50%; background: rgba(255,255,255,0.05);
+    }
+    .hero-wrap::after {
+        content: ""; position: absolute;
+        right: 60px; bottom: -60px; width: 200px; height: 200px;
+        border-radius: 50%; background: rgba(52,211,153,0.08);
+    }
+    .hero-badge {
+        display: inline-block; background: rgba(255,255,255,0.15);
+        border: 1px solid rgba(255,255,255,0.25); border-radius: 99px;
+        padding: 4px 14px; font-size: 0.65rem; font-weight: 700;
+        color: rgba(255,255,255,0.85); text-transform: uppercase;
+        letter-spacing: 0.12em; margin-bottom: 16px;
+    }
+    .hero-title {
+        font-size: 2.4rem; font-weight: 900; color: #ffffff;
+        letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 14px;
+    }
+    .hero-sub {
+        font-size: 1.0rem; color: rgba(255,255,255,0.72);
+        font-weight: 400; line-height: 1.6; max-width: 560px; margin-bottom: 32px;
+    }
+    .hero-start-btn {
+        display: inline-block; background: #ffffff; color: #059669;
+        font-size: 0.9rem; font-weight: 800; padding: 12px 32px;
+        border-radius: 10px; cursor: pointer; text-decoration: none;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        transition: all 0.2s ease; letter-spacing: 0.02em;
+        border: none;
+    }
+    .hero-start-btn:hover {
+        transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    }
+
+    /* How it works cards */
+    .hiw-grid { display: flex; gap: 16px; margin-bottom: 40px; }
+    .hiw-card {
+        flex: 1; background: #ffffff; border: 1.5px solid #e2e8f0;
+        border-radius: 14px; padding: 24px 22px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        position: relative; overflow: hidden;
+        transition: box-shadow 0.2s ease;
+    }
+    .hiw-card:hover { box-shadow: 0 6px 20px rgba(5,150,105,0.12); }
+    .hiw-step {
+        width: 32px; height: 32px; border-radius: 8px;
+        background: linear-gradient(135deg,#059669,#34d399);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.75rem; font-weight: 900; color: #fff;
+        margin-bottom: 14px; box-shadow: 0 2px 8px rgba(5,150,105,0.3);
+    }
+    .hiw-title {
+        font-size: 0.85rem; font-weight: 800; color: #1f2937;
+        margin-bottom: 8px; letter-spacing: -0.01em;
+    }
+    .hiw-desc {
+        font-size: 0.78rem; color: #6b7280; line-height: 1.55; font-weight: 400;
+    }
+
+    /* Modern number input cards */
+    .input-grid { display: grid; gap: 10px; }
+    .input-item {
+        background: #f8fafc; border: 1.5px solid #e2e8f0;
+        border-radius: 10px; padding: 10px 14px 8px;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input-item:focus-within {
+        border-color: #059669;
+        box-shadow: 0 0 0 3px rgba(5,150,105,0.10);
+        background: #fff;
+    }
+    .input-lbl {
+        font-size: 0.65rem; font-weight: 700; color: #9ca3af;
+        text-transform: uppercase; letter-spacing: 0.09em;
+        margin-bottom: 2px;
+    }
+    /* Override Streamlit number input inside .input-item to look embedded */
+    .input-item [data-testid="stNumberInput"] {
+        background: transparent !important;
+    }
+    .input-item [data-testid="stNumberInput"] label {
+        display: none !important;
+    }
+    .input-item [data-testid="stNumberInput"] input {
+        background: transparent !important;
+        border: none !important; border-radius: 0 !important;
+        padding: 0 !important; font-size: 1.05rem !important;
+        font-weight: 700 !important; color: #064e3b !important;
+        box-shadow: none !important;
+    }
+    .input-item [data-testid="stNumberInput"] > div {
+        background: transparent !important;
+        border: none !important; border-radius: 0 !important;
+        padding: 0 !important;
+    }
+    /* Section cards */
+    .param-section {
+        background: #ffffff; border: 1.5px solid #f1f5f9;
+        border-radius: 14px; padding: 22px 24px 20px;
+        margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+    }
+    .param-section-hdr {
+        font-size: 0.67rem; font-weight: 800; color: #059669;
+        text-transform: uppercase; letter-spacing: 0.12em;
+        margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+    }
+    .param-section-hdr::after {
+        content: ""; flex:1; height: 1.5px;
+        background: linear-gradient(90deg, #d1fae5, transparent);
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── HERO SECTION ─────────────────────────────────────────────
+    st.markdown("""
+    <div class="hero-wrap">
+      <div class="hero-badge">MBM Revenue Model v2</div>
+      <div class="hero-title">Model your green<br>investment returns.</div>
+      <div class="hero-sub">
+        Evaluate revenue potential across 44 low-carbon technologies in 194 countries.
+        Set MBM policy prices, configure technology parameters, and run the analysis
+        to see viability maps and country-level NPV breakdowns.
       </div>
-      <div style="font-size:0.85rem;color:#6b7280;margin-top:4px;font-weight:400;">
-        Configure MBM prices and technology parameters, then apply to run the analysis.
+      <a class="hero-start-btn" href="#parameter-setup">Configure Parameters</a>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── HOW IT WORKS ─────────────────────────────────────────────
+    st.markdown("""
+    <div class="hiw-grid">
+      <div class="hiw-card">
+        <div class="hiw-step">1</div>
+        <div class="hiw-title">Set MBM Prices</div>
+        <div class="hiw-desc">
+          Input carbon market prices (ETS, Carbon Tax, VCM), levy rates (CBAM, IMO, CORSIA),
+          contract parameters (CfD, CCfD), and energy commodity assumptions.
+          These propagate across all 44 technologies and 194 countries.
+        </div>
+      </div>
+      <div class="hiw-card">
+        <div class="hiw-step">2</div>
+        <div class="hiw-title">Configure Technology</div>
+        <div class="hiw-desc">
+          Select a technology and adjust its scale, CAPEX, OPEX structure,
+          and CO₂ abatement factor. Country-specific feedstock costs are
+          automatically derived from local energy prices.
+        </div>
+      </div>
+      <div class="hiw-card">
+        <div class="hiw-step">3</div>
+        <div class="hiw-title">Apply & Explore</div>
+        <div class="hiw-desc">
+          Click Apply to run the model. Navigate to <strong>Technology Viability</strong>
+          for the world map and NPV rankings, or <strong>Country Level</strong>
+          for detailed MBM breakdowns and NPV projections by country.
+        </div>
       </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # ── ANCHOR for scroll ─────────────────────────────────────────
+    st.markdown('<div id="parameter-setup"></div>', unsafe_allow_html=True)
+
     # ── MBM PRICE CONTROLS ──────────────────────────────────────
     st.markdown('<div class="sec-head">MBM Price Controls</div>', unsafe_allow_html=True)
 
+    # 4-column section cards with embedded number inputs
     mbm_c1, mbm_c2, mbm_c3, mbm_c4 = st.columns(4)
 
     with mbm_c1:
-        st.markdown('<div class="setup-card-title">Carbon Pricing</div>', unsafe_allow_html=True)
-        pd_["ets"]    = st.number_input("ETS ($/tCO₂e)",       min_value=5,   max_value=300, value=int(pd_["ets"]),    step=5,  key="sp_ets")
-        pd_["ctax"]   = st.number_input("Carbon Tax ($/tCO₂e)", min_value=0,   max_value=200, value=int(pd_["ctax"]),   step=5,  key="sp_ctax")
-        pd_["vcm"]    = st.number_input("VCM/CDM ($/tCO₂e)",   min_value=5,   max_value=300, value=int(pd_["vcm"]),    step=5,  key="sp_vcm")
-        pd_["corsia"] = st.number_input("CORSIA ($/tCO₂e)",     min_value=3,   max_value=100, value=int(pd_["corsia"]), step=1,  key="sp_corsia")
+        st.markdown('<div class="param-section-hdr">Carbon Pricing</div>', unsafe_allow_html=True)
+        def ni(label, key, **kw):
+            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
+            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return val
+        pd_["ets"]    = ni("ETS  ·  USD/tCO₂e",        "sp_ets",    min_value=5,   max_value=300, value=int(pd_["ets"]),    step=5)
+        pd_["ctax"]   = ni("Carbon Tax  ·  USD/tCO₂e",  "sp_ctax",   min_value=0,   max_value=200, value=int(pd_["ctax"]),   step=5)
+        pd_["vcm"]    = ni("VCM/CDM  ·  USD/tCO₂e",     "sp_vcm",    min_value=5,   max_value=300, value=int(pd_["vcm"]),    step=5)
+        pd_["corsia"] = ni("CORSIA  ·  USD/tCO₂e",       "sp_corsia", min_value=3,   max_value=100, value=int(pd_["corsia"]), step=1)
 
     with mbm_c2:
-        st.markdown('<div class="setup-card-title">Levies & Schemes</div>', unsafe_allow_html=True)
-        pd_["cbam"]    = st.number_input("CBAM ($/tCO₂e)",     min_value=10,  max_value=150, value=int(pd_["cbam"]),    step=5,  key="sp_cbam")
-        pd_["imo"]     = st.number_input("IMO Levy ($/tCO₂e)", min_value=50,  max_value=800, value=int(pd_["imo"]),     step=10, key="sp_imo")
-        pd_["feebate"] = st.number_input("Feebate ($/tCO₂e)",   min_value=0,   max_value=150, value=int(pd_["feebate"]), step=5,  key="sp_feebate")
-        pd_["amc"]     = st.number_input("AMC ($/unit)",        min_value=50,  max_value=300, value=int(pd_["amc"]),     step=10, key="sp_amc")
+        st.markdown('<div class="param-section-hdr">Levies & Schemes</div>', unsafe_allow_html=True)
+        def ni2(label, key, **kw):
+            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
+            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return val
+        pd_["cbam"]    = ni2("CBAM  ·  USD/tCO₂e",      "sp_cbam",    min_value=10,  max_value=150, value=int(pd_["cbam"]),    step=5)
+        pd_["imo"]     = ni2("IMO Levy  ·  USD/tCO₂e",   "sp_imo",     min_value=50,  max_value=800, value=int(pd_["imo"]),     step=10)
+        pd_["feebate"] = ni2("Feebate  ·  USD/tCO₂e",    "sp_feebate", min_value=0,   max_value=150, value=int(pd_["feebate"]), step=5)
+        pd_["amc"]     = ni2("AMC  ·  USD/unit",          "sp_amc",     min_value=50,  max_value=300, value=int(pd_["amc"]),     step=10)
 
     with mbm_c3:
-        st.markdown('<div class="setup-card-title">Contracts for Difference</div>', unsafe_allow_html=True)
-        pd_["cfd_strike"]  = st.number_input("CfD Strike ($/MWh)",       min_value=50,  max_value=300, value=int(pd_["cfd_strike"]),  step=5,  key="sp_cfd_s")
-        pd_["cfd_ref"]     = st.number_input("CfD Reference ($/MWh)",    min_value=30,  max_value=200, value=int(pd_["cfd_ref"]),     step=5,  key="sp_cfd_r")
-        pd_["ccfd_strike"] = st.number_input("CCfD Strike ($/tCO₂e)",    min_value=30,  max_value=250, value=int(pd_["ccfd_strike"]), step=5,  key="sp_ccfd_s")
-        pd_["ccfd_ref"]    = st.number_input("CCfD Reference ($/tCO₂e)", min_value=10,  max_value=150, value=int(pd_["ccfd_ref"]),    step=5,  key="sp_ccfd_r")
+        st.markdown('<div class="param-section-hdr">Contracts for Difference</div>', unsafe_allow_html=True)
+        def ni3(label, key, **kw):
+            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
+            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return val
+        pd_["cfd_strike"]  = ni3("CfD Strike  ·  USD/MWh",        "sp_cfd_s",  min_value=50,  max_value=300, value=int(pd_["cfd_strike"]),  step=5)
+        pd_["cfd_ref"]     = ni3("CfD Reference  ·  USD/MWh",      "sp_cfd_r",  min_value=30,  max_value=200, value=int(pd_["cfd_ref"]),     step=5)
+        pd_["ccfd_strike"] = ni3("CCfD Strike  ·  USD/tCO₂e",      "sp_ccfd_s", min_value=30,  max_value=250, value=int(pd_["ccfd_strike"]), step=5)
+        pd_["ccfd_ref"]    = ni3("CCfD Reference  ·  USD/tCO₂e",   "sp_ccfd_r", min_value=10,  max_value=150, value=int(pd_["ccfd_ref"]),    step=5)
 
     with mbm_c4:
-        st.markdown('<div class="setup-card-title">Energy Prices</div>', unsafe_allow_html=True)
-        pd_["fuel"]        = st.number_input("Fuel Mandate ($/MWh)", min_value=100, max_value=600, value=int(pd_["fuel"]),        step=10, key="sp_fuel")
-        pd_["electricity"] = st.number_input("Grid Elec. ($/MWh)",   min_value=20,  max_value=200, value=int(pd_["electricity"]),  step=5,  key="sp_elec")
-        pd_["gas"]         = st.number_input("Nat. Gas ($/MMBtu)",     min_value=2,   max_value=30,  value=int(pd_["gas"]),          step=1,  key="sp_gas")
-        pd_["biomass"]     = st.number_input("Biomass ($/MWh)",       min_value=10,  max_value=120, value=int(pd_["biomass"]),      step=5,  key="sp_bio")
+        st.markdown('<div class="param-section-hdr">Energy Prices</div>', unsafe_allow_html=True)
+        def ni4(label, key, **kw):
+            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
+            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return val
+        pd_["fuel"]        = ni4("Fuel Mandate  ·  USD/MWh",  "sp_fuel",  min_value=100, max_value=600, value=int(pd_["fuel"]),       step=10)
+        pd_["electricity"] = ni4("Grid Elec.  ·  USD/MWh",    "sp_elec",  min_value=20,  max_value=200, value=int(pd_["electricity"]), step=5)
+        pd_["gas"]         = ni4("Nat. Gas  ·  USD/MMBtu",     "sp_gas",   min_value=2,   max_value=30,  value=int(pd_["gas"]),         step=1)
+        pd_["biomass"]     = ni4("Biomass  ·  USD/MWh",        "sp_bio",   min_value=10,  max_value=120, value=int(pd_["biomass"]),     step=5)
 
     st.session_state.p_draft = pd_
 
@@ -1269,23 +1454,28 @@ if page == "setup":
 
     with tp_c2:
         ti_c1, ti_c2, ti_c3 = st.columns(3)
+        def tni(label, key, **kw):
+            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
+            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
+            st.markdown('</div>', unsafe_allow_html=True)
+            return val
         with ti_c1:
-            st.markdown("**Scale & Output**")
-            td_["annual_output"][t_sp]      = st.number_input("Annual Output (units/yr)", 0, 50_000_000, int(td_["annual_output"][t_sp]),   10000, key=f"sp_ao{t_sp}")
-            td_["installed_capacity"][t_sp] = st.number_input("Installed Capacity (MW)",  0, 10000,      int(td_["installed_capacity"][t_sp]),  10,  key=f"sp_ic{t_sp}")
-            td_["capacity_factor"][t_sp]    = st.number_input("Capacity Factor", min_value=0.0, max_value=1.0, value=float(td_["capacity_factor"][t_sp]), step=0.01, format="%.2f", key=f"sp_cf{t_sp}")
-            td_["project_lifetime"][t_sp]   = st.number_input("Project Lifetime (yr)", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1, key=f"sp_pl{t_sp}")
+            st.markdown('<div class="param-section-hdr">Scale & Output</div>', unsafe_allow_html=True)
+            td_["annual_output"][t_sp]      = tni("Annual Output  ·  units/yr",  f"sp_ao{t_sp}", min_value=0, max_value=50_000_000, value=int(td_["annual_output"][t_sp]),    step=10000)
+            td_["installed_capacity"][t_sp] = tni("Installed Capacity  ·  MW",   f"sp_ic{t_sp}", min_value=0, max_value=10000,      value=int(td_["installed_capacity"][t_sp]), step=10)
+            td_["capacity_factor"][t_sp]    = tni("Capacity Factor  ·  0–1",     f"sp_cf{t_sp}", min_value=0.0, max_value=1.0, value=float(td_["capacity_factor"][t_sp]), step=0.01, format="%.2f")
+            td_["project_lifetime"][t_sp]   = tni("Project Lifetime  ·  years",  f"sp_pl{t_sp}", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1)
         with ti_c2:
-            st.markdown("**Cost Structure**")
-            td_["capex_per_kw"][t_sp]   = st.number_input("CAPEX/kW (USD/kW)", 0, 30000, int(td_["capex_per_kw"][t_sp]), 100, key=f"sp_ck{t_sp}")
-            td_["opex_pct"][t_sp]       = st.number_input("OPEX (% CAPEX p.a.)", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f", key=f"sp_op{t_sp}")
-            td_["feedstock_cost"][t_sp] = st.number_input("Feedstock (USD/yr)", 0, 50_000_000, int(td_["feedstock_cost"][t_sp]), 100000, key=f"sp_fc{t_sp}")
-            td_["other_opex"][t_sp]     = st.number_input("Other OPEX (USD/yr)", 0, 20_000_000, int(td_["other_opex"][t_sp]), 100000, key=f"sp_ov{t_sp}")
-            td_["wacc"][t_sp]           = st.number_input("WACC", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f", key=f"sp_wc{t_sp}")
+            st.markdown('<div class="param-section-hdr">Cost Structure</div>', unsafe_allow_html=True)
+            td_["capex_per_kw"][t_sp]   = tni("CAPEX  ·  USD/kW",       f"sp_ck{t_sp}", min_value=0, max_value=30000, value=int(td_["capex_per_kw"][t_sp]), step=100)
+            td_["opex_pct"][t_sp]       = tni("OPEX  ·  % of CAPEX/yr", f"sp_op{t_sp}", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f")
+            td_["feedstock_cost"][t_sp] = tni("Feedstock  ·  USD/yr",   f"sp_fc{t_sp}", min_value=0, max_value=50_000_000, value=int(td_["feedstock_cost"][t_sp]), step=100000)
+            td_["other_opex"][t_sp]     = tni("Other OPEX  ·  USD/yr",  f"sp_ov{t_sp}", min_value=0, max_value=20_000_000, value=int(td_["other_opex"][t_sp]), step=100000)
+            td_["wacc"][t_sp]           = tni("WACC  ·  decimal",        f"sp_wc{t_sp}", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f")
         with ti_c3:
-            st.markdown("**Revenue Drivers**")
-            td_["market_price"][t_sp]      = st.number_input("Market Price (USD/unit)", 0, 200000, int(td_["market_price"][t_sp]), 10, key=f"sp_mp{t_sp}")
-            td_["co2_abated_factor"][t_sp] = st.number_input("CO₂ Abated / Unit", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f", key=f"sp_ca{t_sp}")
+            st.markdown('<div class="param-section-hdr">Revenue Drivers</div>', unsafe_allow_html=True)
+            td_["market_price"][t_sp]      = tni("Market Price  ·  USD/unit", f"sp_mp{t_sp}", min_value=0, max_value=200000, value=int(td_["market_price"][t_sp]), step=10)
+            td_["co2_abated_factor"][t_sp] = tni("CO₂ Abated  ·  tCO₂/unit", f"sp_ca{t_sp}", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f")
 
     st.session_state.ti_draft = td_
 
