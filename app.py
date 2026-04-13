@@ -1269,80 +1269,56 @@ if page == "setup":
         font-size: 0.78rem; color: #6b7280; line-height: 1.55; font-weight: 400;
     }
 
-    /* Modern number input cards — dark slate style */
-    .input-grid { display: grid; gap: 10px; }
+    /* Input cards — gradient background */
     .input-item {
-        background: #0f1f1a;
-        border: 1px solid #1a3329;
+        background: linear-gradient(135deg, #f0fdf9 0%, #e6f7f2 60%, #d1fae5 100%);
+        border: 1px solid #a7f3d0;
         border-radius: 12px; padding: 12px 16px 10px;
-        transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
-        position: relative;
-    }
-    .input-item::before {
-        content: ""; position: absolute; left: 0; top: 0; bottom: 0;
-        width: 3px; border-radius: 12px 0 0 12px;
-        background: linear-gradient(180deg, #059669, #34d399);
-        opacity: 0; transition: opacity 0.18s;
+        margin-bottom: 8px;
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
     }
     .input-item:focus-within {
+        background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 60%, #a7f3d0 100%);
         border-color: #059669;
-        background: #0d1f1b;
-        box-shadow: 0 0 0 2px rgba(5,150,105,0.18), 0 4px 16px rgba(5,150,105,0.12);
+        box-shadow: 0 0 0 3px rgba(5,150,105,0.14), 0 4px 14px rgba(5,150,105,0.1);
     }
-    .input-item:focus-within::before { opacity: 1; }
     .input-lbl {
-        font-size: 0.6rem; font-weight: 700; color: #4b7c6a;
-        text-transform: uppercase; letter-spacing: 0.11em;
-        margin-bottom: 3px;
+        font-size: 0.59rem; font-weight: 800; color: #059669;
+        text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 3px;
     }
-    /* Override Streamlit number input inside .input-item */
-    .input-item [data-testid="stNumberInput"] {
-        background: transparent !important;
-    }
-    .input-item [data-testid="stNumberInput"] label {
-        display: none !important;
-    }
+    .input-item [data-testid="stNumberInput"] { background: transparent !important; }
+    .input-item [data-testid="stNumberInput"] label { display: none !important; }
     .input-item [data-testid="stNumberInput"] input {
         background: transparent !important;
         border: none !important; border-radius: 0 !important;
-        padding: 0 !important; font-size: 1.1rem !important;
-        font-weight: 700 !important; color: #e6fff9 !important;
-        box-shadow: none !important; caret-color: #34d399 !important;
-    }
-    .input-item [data-testid="stNumberInput"] input::selection {
-        background: rgba(52,211,153,0.25);
+        padding: 0 !important; font-size: 1.15rem !important;
+        font-weight: 800 !important; color: #064e3b !important;
+        box-shadow: none !important;
     }
     .input-item [data-testid="stNumberInput"] > div {
         background: transparent !important;
-        border: none !important; border-radius: 0 !important;
-        padding: 0 !important;
+        border: none !important; border-radius: 0 !important; padding: 0 !important;
     }
-    /* +/− stepper buttons inside dark card */
     .input-item [data-testid="stNumberInput"] button {
-        background: #1a3329 !important;
-        border: 1px solid #264d3a !important;
-        color: #34d399 !important; border-radius: 6px !important;
-        font-size: 0.9rem !important; font-weight: 700 !important;
+        background: rgba(255,255,255,0.7) !important;
+        border: 1px solid #6ee7b7 !important; color: #059669 !important;
+        border-radius: 6px !important; font-weight: 700 !important;
+        backdrop-filter: blur(4px) !important;
         transition: background 0.12s, transform 0.1s !important;
     }
     .input-item [data-testid="stNumberInput"] button:hover {
-        background: #1f4033 !important; transform: scale(1.1) !important;
+        background: rgba(255,255,255,0.95) !important; transform: scale(1.08) !important;
     }
 
-    /* Section header above each column */
-    .param-section {
-        background: #ffffff; border: 1.5px solid #f1f5f9;
-        border-radius: 14px; padding: 22px 24px 20px;
-        margin-bottom: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.04);
-    }
+    /* Section header */
     .param-section-hdr {
-        font-size: 0.67rem; font-weight: 800; color: #059669;
+        font-size: 0.67rem; font-weight: 800; color: #374151;
         text-transform: uppercase; letter-spacing: 0.12em;
-        margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+        margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
     }
     .param-section-hdr::after {
         content: ""; flex:1; height: 1.5px;
-        background: linear-gradient(90deg, #d1fae5, transparent);
+        background: linear-gradient(90deg, #6ee7b7, transparent);
     }
     </style>
     """, unsafe_allow_html=True)
