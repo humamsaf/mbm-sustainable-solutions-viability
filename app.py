@@ -17,7 +17,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 html, body, [class*="css"], .stApp {
     font-family: 'Inter', sans-serif !important;
-    background: #f5f7fa !important;
+    background: #ffffff !important;
 }
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none; }
@@ -32,27 +32,28 @@ html, body, [class*="css"], .stApp {
 .block-container {
     padding: 1.5rem 1.75rem 2rem 1.75rem !important;
     max-width: 100% !important;
-    background: #f5f7fa !important;
+    background: #ffffff !important;
 }
 .page-header {
-    background: linear-gradient(135deg, #065f46 0%, #059669 55%, #34d399 100%);
-    border-radius: 14px; padding: 26px 30px 24px 30px;
+    background: #ffffff;
+    border: 1.5px solid #d1fae5; border-left: 4px solid #059669;
+    border-radius: 14px; padding: 22px 28px 20px 28px;
     margin-bottom: 22px; position: relative; overflow: hidden;
 }
 .page-header::after {
     content: ''; position: absolute; right: -50px; top: -50px;
     width: 200px; height: 200px; border-radius: 50%;
-    background: rgba(255,255,255,0.07); pointer-events: none;
+    background: rgba(5,150,105,0.04); pointer-events: none;
 }
 .page-header-badge {
-    display: inline-block; background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.25); border-radius: 99px;
+    display: inline-block; background: #f0fdf4;
+    border: 1px solid #a7f3d0; border-radius: 99px;
     padding: 3px 12px; font-size: 0.65rem; font-weight: 700;
-    color: rgba(255,255,255,0.9); text-transform: uppercase;
+    color: #059669; text-transform: uppercase;
     letter-spacing: 0.1em; margin-bottom: 10px;
 }
-.page-header-title { font-size: 1.45rem; font-weight: 800; color: #ffffff; letter-spacing: -0.02em; margin: 0 0 5px 0; line-height: 1.2; }
-.page-header-sub { font-size: 0.8rem; color: rgba(255,255,255,0.72); margin: 0; font-weight: 400; }
+.page-header-title { font-size: 1.45rem; font-weight: 800; color: #064e3b; letter-spacing: -0.02em; margin: 0 0 5px 0; line-height: 1.2; }
+.page-header-sub { font-size: 0.8rem; color: #6b7280; margin: 0; font-weight: 400; }
 .kpi-card {
     background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
     padding: 18px 20px 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.05);
@@ -1252,7 +1253,7 @@ with st.sidebar:
     for _snum, _slabel, _sdone in steps:
         _sc = "#059669" if _sdone else "#d1d5db"
         _sbg = "#f0fdf4" if _sdone else "#f9fafb"
-        _stc = "#064e3b" if _sdone else "#9ca3af"
+        _stc = "#059669" if _sdone else "#9ca3af"
         st.markdown(
             f'<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;' +
             f'background:{_sbg};border-radius:8px;margin-bottom:4px;">' +
@@ -1287,7 +1288,7 @@ td_ = st.session_state.ti_draft
 st.markdown("""
 <style>
 .run-btn-wrap .stButton>button {
-    background:linear-gradient(135deg,#059669,#10b981) !important;
+    background:#059669 !important;
     color:#fff !important; border:none !important;
     font-size:1.0rem !important; font-weight:800 !important;
     padding:14px 0 !important; border-radius:12px !important;
@@ -1295,31 +1296,32 @@ st.markdown("""
     width:100% !important;
 }
 .input-item {
-    background:linear-gradient(135deg,#064e3b 0%,#065f46 40%,#059669 75%,#34d399 100%);
-    border:1px solid #047857; border-radius:12px; padding:12px 16px 10px; margin-bottom:8px;
+    background:#ffffff;
+    border:1px solid #e2e8f0; border-radius:10px; padding:10px 14px 8px; margin-bottom:8px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.04);
 }
 .input-lbl {
-    font-size:0.59rem; font-weight:800; color:rgba(255,255,255,0.65);
-    text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px;
+    font-size:0.59rem; font-weight:700; color:#6b7280;
+    text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;
 }
 .input-item [data-testid="stNumberInput"] label { display:none !important; }
 .input-item [data-testid="stNumberInput"] input {
     background:transparent !important; border:none !important;
-    font-size:1.18rem !important; font-weight:800 !important;
-    color:#ffffff !important; box-shadow:none !important; }
+    font-size:1.1rem !important; font-weight:700 !important;
+    color:#111827 !important; box-shadow:none !important; }
 .input-item [data-testid="stNumberInput"] > div {
     background:transparent !important; border:none !important; padding:0 !important; }
 .input-item [data-testid="stNumberInput"] button {
-    background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.3) !important;
-    color:#ffffff !important; border-radius:6px !important; font-weight:700 !important; }
+    background:#f3f4f6 !important; border:1px solid #e5e7eb !important;
+    color:#374151 !important; border-radius:6px !important; font-weight:700 !important; }
 .param-section-hdr {
     font-size:0.67rem; font-weight:800; color:#374151;
     text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;
     display:flex; align-items:center; gap:8px;
 }
-.param-section-hdr::after { content:""; flex:1; height:1.5px; background:linear-gradient(90deg,#6ee7b7,transparent); }
+.param-section-hdr::after { content:""; flex:1; height:1.5px; background:linear-gradient(90deg,#e2e8f0,transparent); }
 .country-panel {
-    background:#f0fdf4; border:1.5px solid #6ee7b7; border-radius:14px;
+    background:#ffffff; border:1.5px solid #e2e8f0; border-radius:14px;
     padding:22px 26px; margin-top:16px;
 }
 </style>
