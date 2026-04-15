@@ -435,6 +435,99 @@ MBM_LABELS = {
 # HELPERS
 # 
 GREENS = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0","#d1fae5","#ecfdf5","#f0fdf4"]
+
+# ─────────────────────────────────────────────────────────────────
+# MONTE CARLO ENGINE
+# ─────────────────────────────────────────────────────────────────
+import numpy as np
+
+# Calibrated GBM parameters per MBM mechanism
+# (mu=annual drift, sigma=annual vol, floor, cap) — all in USD/tCO2e or USD/unit
+MODEL_PRICE_FORECASTS = {
+    "ets":    {"mu": 0.04,  "sigma": 0.22, "floor": 10,  "cap": 250},
+    "ctax":   {"mu": 0.05,  "sigma": 0.18, "floor": 5,   "cap": 200},
+    "fuel":   {"mu": 0.03,  "sigma": 0.15, "floor": 50,  "cap": 800},
+    "cfd":    {"mu": 0.02,  "sigma": 0.12, "floor": 50,  "cap": 400},
+    "ccfd":   {"mu": 0.03,  "sigma": 0.14, "floor": 30,  "cap": 300},
+    "cbam":   {"mu": 0.04,  "sigma": 0.20, "floor": 10,  "cap": 200},
+    "corsia": {"mu": 0.05,  "sigma": 0.25, "floor": 5,   "cap": 150},
+    "imo":    {"mu": 0.04,  "sigma": 0.20, "floor": 100, "cap": 800},
+    "vcm":    {"mu": 0.06,  "sigma": 0.30, "floor": 2,   "cap": 200},
+    "amc":    {"mu": 0.02,  "sigma": 0.10, "floor": 20,  "cap": 500},
+    "feebate":{"mu": 0.03,  "sigma": 0.15, "floor": 10,  "cap": 200},
+}
+
+def generate_price_paths(base_prices, n_years, n_sims=500, seed=42):
+    """GBM price paths for all 11 MBM mechanisms. Returns dict of {mech: ndarray (n_sims x n_years)}."""
+    rng = np.random.default_rng(seed)
+    paths = {}
+    keys = ["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]
+    for k in keys:
+        p = MODEL_PRICE_FORECASTS[k]
+        S0 = base_prices.get(k, 0)
+        mu, sig = p["mu"], p["sigma"]
+        fl, cap = p["floor"], p["cap"]
+        dt = 1.0
+        Z = rng.standard_normal((n_sims, n_years))
+        log_ret = (mu - 0.5*sig**2)*dt + sig*np.sqrt(dt)*Z
+        price_path = S0 * np.exp(np.cumsum(log_ret, axis=1))
+        price_path = np.clip(price_path, fl, cap)
+        paths[k] = price_path
+    return paths
+
+def compute_mc_revenue(t, ti, base_prices, n_sims=500, seed=42):
+    """Run MC simulation → NPV distribution (MBM-only) for technology t."""
+    lt   = ti["project_lifetime"][t]
+    ck   = ti["installed_capacity"][t] * 1000
+    cap  = ck * ti["capex_per_kw"][t]
+    w    = ti["wacc"][t]
+    ac   = cap * calc_crf(w, lt)
+    fo   = cap * ti["opex_pct"][t]
+    tc   = ac + fo + ti["feedstock_cost"][t] + ti["other_opex"][t]
+    o    = ti["annual_output"][t]
+    co2  = o * ti["co2_abated_factor"][t]
+
+    paths = generate_price_paths(base_prices, lt, n_sims=n_sims, seed=seed)
+    # shape: (n_sims, lt)
+    def m(mi, active_val, calc_fn):
+        return calc_fn(paths) if MBM_MATRIX[t][mi] is not None else np.zeros((n_sims, lt))
+
+    e_p   = paths["ets"]   * co2 if MBM_MATRIX[t][0]  and co2>0 else np.zeros((n_sims,lt))
+    cx_p  = paths["ctax"]  * co2 if MBM_MATRIX[t][1]  and co2>0 else np.zeros((n_sims,lt))
+    fu_p  = paths["fuel"]  * o * 0.85 if MBM_MATRIX[t][2]  and o>0   else np.zeros((n_sims,lt))
+    cf_p  = (np.maximum(0, paths["cfd"] - base_prices.get("cfd_ref",80)) * o * 0.5) if MBM_MATRIX[t][3] and o>0 else np.zeros((n_sims,lt))
+    ccf_p = (np.maximum(0, paths["ccfd"] - base_prices.get("ccfd_ref",60)) * co2 * 0.5) if MBM_MATRIX[t][4] and co2>0 else np.zeros((n_sims,lt))
+    cb_p  = paths["cbam"]   * co2 * 0.85 if MBM_MATRIX[t][5] and co2>0 else np.zeros((n_sims,lt))
+    co_p  = paths["corsia"] * co2 * 1.05 if MBM_MATRIX[t][6] and co2>0 else np.zeros((n_sims,lt))
+    im_p  = paths["imo"]    * co2 * 0.95 if MBM_MATRIX[t][7] and co2>0 else np.zeros((n_sims,lt))
+    v_p   = paths["vcm"]    * co2        if MBM_MATRIX[t][8] and co2>0 else np.zeros((n_sims,lt))
+    am_p  = (paths["amc"] * (o/1000) * 0.5) if MBM_MATRIX[t][9] and o>0 else np.zeros((n_sims,lt))
+    fb_p  = paths["feebate"] * co2 * 0.5 if MBM_MATRIX[t][10] and co2>0 else np.zeros((n_sims,lt))
+
+    mb_annual = e_p + cx_p + fu_p + cf_p + ccf_p + cb_p + co_p + im_p + v_p + am_p + fb_p  # (n_sims, lt)
+
+    # Discount each year
+    disc = np.array([(1+w)**yr for yr in range(1, lt+1)])  # (lt,)
+    pv_mb = mb_annual / disc[np.newaxis, :]                # (n_sims, lt)
+    npv_sims = -cap + pv_mb.sum(axis=1) - tc * sum(1/(1+w)**y for y in range(1, lt+1))
+
+    return {
+        "npv_p10":        float(np.percentile(npv_sims, 10)),
+        "npv_p50":        float(np.percentile(npv_sims, 50)),
+        "npv_p90":        float(np.percentile(npv_sims, 90)),
+        "npv_mean":       float(npv_sims.mean()),
+        "npv_std":        float(npv_sims.std()),
+        "prob_positive":  float((npv_sims > 0).mean()),
+        "npv_distribution": npv_sims.tolist(),
+        "mbm_p10":  mb_annual.sum(axis=1).min() / 1e6,
+        "mbm_p50":  float(np.percentile(mb_annual.sum(axis=1), 50)) / 1e6,
+        "mbm_p90":  mb_annual.sum(axis=1).max() / 1e6,
+        "mb_annual_p10": (np.percentile(mb_annual, 10, axis=0) / 1e6).tolist(),
+        "mb_annual_p50": (np.percentile(mb_annual, 50, axis=0) / 1e6).tolist(),
+        "mb_annual_p90": (np.percentile(mb_annual, 90, axis=0) / 1e6).tolist(),
+    }
+
+
 PBG, FC, GC = "rgba(0,0,0,0)", "#374151", "rgba(5,150,105,0.07)"
 
 def pl(h=380, ml=20, mr=20, mt=20, mb=30):
@@ -987,6 +1080,7 @@ if "ti"               not in st.session_state: st.session_state.ti = {k: list(v)
 if "p"                not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
 if "ti_draft"         not in st.session_state: st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
 if "results_ready"    not in st.session_state: st.session_state.results_ready = False
+if "mc_cache"         not in st.session_state: st.session_state.mc_cache = {}
 if "selected_country" not in st.session_state: st.session_state.selected_country = None
 
 # 
@@ -1345,15 +1439,15 @@ if st.session_state.results_ready:
 
     # Map
     st.markdown('<div class="sec-head">Technology Viability Map  —  Select a country for detailed analysis</div>', unsafe_allow_html=True)
-    _mc1, _mc2, _mc3 = st.columns([2, 2, 1])
+    _mc1, _mc2 = st.columns([2, 2])
     with _mc1:
         ALL_REGIONS_MAP = sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values()))
         region_filter = st.selectbox("Region", ["All Regions"] + ALL_REGIONS_MAP, key="map_region")
         show_regions  = ALL_REGIONS_MAP if region_filter=="All Regions" else [region_filter]
     with _mc2:
         map_metric = st.selectbox("Map Colour Metric", ["NPV ($M)", "MBM Rev ($M)", "R/C Ratio"], key="map_metric")
-    with _mc3:
-        use_real_cp = st.checkbox("Real carbon prices", value=True, key="map_real_cp")
+    # Real carbon prices applied automatically (hardcoded)
+    use_real_cp = True
 
     sv_rows = []
     for _country, _cdata in COUNTRY_DATA_RAW.items():
@@ -1409,17 +1503,21 @@ if st.session_state.results_ready:
 
     # Choropleth
     df_choro = df_sv[df_sv["ISO3"].str.len()==3].copy()
-    df_choro["_cval"] = df_choro.apply(lambda row: row["_metric"] if row["Viable?"]=="Yes" else -abs(row["_metric"]), axis=1)
+    # Binary colour: dark green = viable, red = not viable
+    df_choro["_binary"] = df_choro["Viable?"].map({"Yes": 1, "No": 0})
     fig_map = go.Figure(go.Choropleth(
-        locations=df_choro["ISO3"], z=df_choro["_cval"],
+        locations=df_choro["ISO3"],
+        z=df_choro["_binary"],
         text=df_choro["_hover"], hoverinfo="text",
-        colorscale=[[0.0,"#fecaca"],[0.25,"#fef3c7"],[0.45,"#d1fae5"],[0.7,"#059669"],[1.0,"#064e3b"]],
+        colorscale=[[0.0, "#dc2626"], [1.0, "#065f46"]],
         showscale=True,
-        colorbar=dict(title=dict(text=map_metric, font=dict(size=9,color=FC)),
-                      tickfont=dict(size=8), thickness=12, len=0.65, x=1.01),
+        colorbar=dict(
+            title=dict(text="Viability", font=dict(size=9, color=FC)),
+            tickvals=[0, 1], ticktext=["Not Viable", "Viable"],
+            tickfont=dict(size=8), thickness=12, len=0.5, x=1.01,
+        ),
         marker=dict(line=dict(color="#ffffff", width=0.4)),
-        zmin=df_choro["_cval"].quantile(0.05),
-        zmax=df_choro["_cval"].quantile(0.95),
+        zmin=0, zmax=1,
     ))
     fig_map.update_geos(showcountries=True, countrycolor="#e2e8f0",
                         showcoastlines=True, coastlinecolor="#d1d5db",
@@ -1551,6 +1649,53 @@ if st.session_state.results_ready:
                 annotation_text="Break-even", annotation_font_color="#dc2626", annotation_font_size=9)
             _fcu.update_layout(**pl(280)); _fcu.update_layout(xaxis_title="Year", yaxis_title="USD Million")
             st.plotly_chart(_fcu, use_container_width=True)
+
+
+        # Monte Carlo NPV Analysis
+        st.markdown('<div class="sec-head">Monte Carlo NPV Analysis  —  500 Simulations</div>', unsafe_allow_html=True)
+        _mc_key = f"mc_{t_r}_{id(_sel_c)}"
+        if "mc_cache" not in st.session_state:
+            st.session_state.mc_cache = {}
+        if _mc_key not in st.session_state.mc_cache:
+            with st.spinner("Running 500 Monte Carlo simulations…"):
+                st.session_state.mc_cache[_mc_key] = compute_mc_revenue(t_r, ti, _cp_cl, n_sims=500)
+        _mc = st.session_state.mc_cache[_mc_key]
+
+        _mc1k, _mc2k, _mc3k, _mc4k = st.columns(4)
+        _mc1k.markdown(kpi(f"${_mc['npv_p50']/1e6:.1f}M", "NPV P50 (MBM)", "Median scenario"), unsafe_allow_html=True)
+        _mc2k.markdown(kpi(f"${_mc['npv_p10']/1e6:.1f}M", "NPV P10", "Downside 10th pct"), unsafe_allow_html=True)
+        _mc3k.markdown(kpi(f"${_mc['npv_p90']/1e6:.1f}M", "NPV P90", "Upside 90th pct"), unsafe_allow_html=True)
+        _mc4k.markdown(kpi(f"{_mc['prob_positive']*100:.0f}%", "Prob. Viable", "Simulations with NPV > 0"), unsafe_allow_html=True)
+
+        _mcc1, _mcc2 = st.columns(2)
+        with _mcc1:
+            st.markdown('<div class="sec-head">NPV Distribution</div>', unsafe_allow_html=True)
+            _npv_arr = np.array(_mc["npv_distribution"]) / 1e6
+            _fig_hist = go.Figure(go.Histogram(
+                x=_npv_arr, nbinsx=40,
+                marker_color="#059669", opacity=0.75,
+                name="NPV Distribution"))
+            for _pv, _pc, _col in [(_mc["npv_p10"]/1e6,"P10","#dc2626"),
+                                    (_mc["npv_p50"]/1e6,"P50","#1d4ed8"),
+                                    (_mc["npv_p90"]/1e6,"P90","#065f46")]:
+                _fig_hist.add_vline(x=_pv, line_color=_col, line_width=1.5, line_dash="dash",
+                                    annotation_text=_pc, annotation_font_color=_col, annotation_font_size=9)
+            _fig_hist.update_layout(**pl(260)); _fig_hist.update_xaxes(title_text="NPV (USD Million)")
+            st.plotly_chart(_fig_hist, use_container_width=True)
+        with _mcc2:
+            st.markdown('<div class="sec-head">Annual MBM Revenue Fan  (P10 / P50 / P90)</div>', unsafe_allow_html=True)
+            _yrs_mc = list(range(1, ti["project_lifetime"][t_r]+1))
+            _fig_fan = go.Figure()
+            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p90"], name="P90",
+                line=dict(color="#34d399", width=1.5, dash="dot")))
+            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p50"], name="P50",
+                line=dict(color="#059669", width=2.5),
+                fill="tonexty", fillcolor="rgba(5,150,105,0.12)"))
+            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p10"], name="P10",
+                line=dict(color="#dc2626", width=1.5, dash="dot"),
+                fill="tonexty", fillcolor="rgba(220,38,38,0.08)"))
+            _fig_fan.update_layout(**pl(260)); _fig_fan.update_layout(xaxis_title="Year", yaxis_title="USD Million")
+            st.plotly_chart(_fig_fan, use_container_width=True)
 
         if st.button("Close Country Detail", key="btn_close_country"):
             st.session_state.selected_country = None
