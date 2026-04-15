@@ -19,14 +19,6 @@ html, body, [class*="css"], .stApp {
     font-family: 'Inter', sans-serif !important;
     background: #ffffff !important;
 }
-#MainMenu, footer, header { visibility: hidden; }
-.stDeployButton { display: none; }
-[data-testid="stSidebar"] {
-    min-width: 248px !important; max-width: 248px !important;
-    background: #ffffff !important;
-    border-right: 1px solid #e2e8f0 !important;
-    box-shadow: 2px 0 16px rgba(0,0,0,0.05) !important;
-}
 [data-testid="stSidebarContent"] { padding: 0 !important; }
 [data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 .block-container {
