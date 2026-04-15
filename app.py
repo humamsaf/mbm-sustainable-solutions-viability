@@ -6,8 +6,8 @@ from plotly.subplots import make_subplots
 import json
 
 st.set_page_config(
-    page_title="MBM Revenue Model v2",
-    page_icon=":seedling:",
+    page_title="MBM Revenue Model v3",
+    page_icon="🌱",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -416,6 +416,178 @@ DEFAULT_PRICES = {
     "cbam": 55, "corsia": 22, "imo": 380, "vcm": 100, "amc": 100,
     "feebate": 50, "electricity": 60, "gas": 8, "biomass": 40,
 }
+
+# ─────────────────────────────────────────────────────────────────
+# MODEL-DRIVEN PRICE FORECASTS (v3 revision)
+# Users no longer set MBM prices — the model provides data-driven
+# price trajectories with uncertainty per mechanism.
+# ─────────────────────────────────────────────────────────────────
+
+# Calibrated current-year price forecasts (2025 base)
+# Sources: ICAP ETS data, World Bank CPSR, IMO GHG, IATA CORSIA
+MODEL_PRICE_FORECASTS = {
+    # mechanism: {mean, sigma (annual vol), drift (annual %), floor, cap}
+    "ets":         {"mean": 72,  "sigma": 18,  "drift": 0.04, "floor": 15,  "cap": 250},
+    "ctax":        {"mean": 48,  "sigma": 8,   "drift": 0.06, "floor": 5,   "cap": 200},
+    "fuel":        {"mean": 240, "sigma": 30,  "drift": 0.02, "floor": 120, "cap": 600},
+    "cfd_spread":  {"mean": 40,  "sigma": 10,  "drift": 0.00, "floor": 0,   "cap": 120},
+    "ccfd_spread": {"mean": 40,  "sigma": 8,   "drift": 0.01, "floor": 0,   "cap": 100},
+    "cbam":        {"mean": 58,  "sigma": 10,  "drift": 0.05, "floor": 20,  "cap": 150},
+    "corsia":      {"mean": 24,  "sigma": 6,   "drift": 0.08, "floor": 5,   "cap": 120},
+    "imo":         {"mean": 380, "sigma": 60,  "drift": 0.03, "floor": 100, "cap": 800},
+    "vcm":         {"mean": 95,  "sigma": 25,  "drift": 0.05, "floor": 10,  "cap": 300},
+    "amc":         {"mean": 100, "sigma": 15,  "drift": 0.02, "floor": 50,  "cap": 250},
+    "feebate":     {"mean": 50,  "sigma": 10,  "drift": 0.03, "floor": 0,   "cap": 150},
+}
+
+# Scenario multipliers (applied to mean path)
+PRICE_SCENARIOS = {
+    "Net Zero (NZE)":        {"ets": 1.6, "ctax": 1.8, "cbam": 1.4, "corsia": 1.5, "imo": 1.3, "vcm": 1.3},
+    "Stated Policies (SPS)": {"ets": 1.0, "ctax": 1.0, "cbam": 1.0, "corsia": 1.0, "imo": 1.0, "vcm": 1.0},
+    "Current Policy (CPS)":  {"ets": 0.6, "ctax": 0.6, "cbam": 0.7, "corsia": 0.7, "imo": 0.8, "vcm": 0.7},
+}
+
+def generate_price_paths(n_years=25, n_sims=500, scenario="Stated Policies (SPS)", seed=42):
+    """
+    Generate N Monte Carlo price paths for all 11 MBM mechanisms.
+    Returns dict: {mechanism: ndarray shape (n_sims, n_years)}
+    Uses Geometric Brownian Motion with mean-reversion for tax-type mechanisms.
+    """
+    rng = np.random.default_rng(seed)
+    paths = {}
+    mults = PRICE_SCENARIOS.get(scenario, PRICE_SCENARIOS["Stated Policies (SPS)"])
+
+    for mech, params in MODEL_PRICE_FORECASTS.items():
+        mu    = params["mean"] * mults.get(mech, 1.0)
+        sigma = params["sigma"]
+        drift = params["drift"]
+        floor = params["floor"]
+        cap   = params["cap"]
+
+        # GBM: dP = μ·P·dt + σ·P·dW
+        dt   = 1.0  # annual steps
+        Z    = rng.standard_normal((n_sims, n_years))
+        path = np.zeros((n_sims, n_years))
+        path[:, 0] = mu
+        for t in range(1, n_years):
+            path[:, t] = path[:, t-1] * np.exp(
+                (drift - 0.5 * sigma**2 / mu**2) * dt +
+                (sigma / mu) * np.sqrt(dt) * Z[:, t]
+            )
+        # Apply floor/cap
+        path = np.clip(path, floor, cap)
+
+        # For CfD and CCfD store spread directly
+        if mech in ("cfd_spread", "ccfd_spread"):
+            paths[mech] = path
+        else:
+            paths[mech] = path
+
+    return paths
+
+def paths_to_price_dict(paths, year_idx=0):
+    """Extract a single year's prices from paths (for deterministic use)."""
+    p = dict(DEFAULT_PRICES)
+    for mech, path in paths.items():
+        median_price = float(np.median(path[:, year_idx]))
+        if mech == "cfd_spread":
+            p["cfd_strike"] = p.get("cfd_ref", 80) + median_price
+        elif mech == "ccfd_spread":
+            p["ccfd_strike"] = p.get("ccfd_ref", 60) + median_price
+        else:
+            p[mech] = median_price
+    return p
+
+def compute_mc_revenue(t, ti, country=None, base_prices=None,
+                       n_sims=500, scenario="Stated Policies (SPS)"):
+    """
+    Run Monte Carlo simulation for technology t.
+    Returns dict with P10/P50/P90 for each mechanism and total MBM revenue.
+    """
+    n_years = int(ti["project_lifetime"][t])
+    paths   = generate_price_paths(n_years=n_years, n_sims=n_sims, scenario=scenario)
+
+    # Per-simulation annual MBM revenues (shape: n_sims x n_years)
+    results = {
+        "total_mbm": np.zeros((n_sims, n_years)),
+        "by_mech": {m: np.zeros((n_sims, n_years)) for m in MODEL_PRICE_FORECASTS},
+        "npv": np.zeros(n_sims),
+    }
+
+    o   = ti["annual_output"][t]
+    ck  = ti["installed_capacity"][t] * 1000
+    w   = ti["wacc"][t]
+    cap = ck * ti["capex_per_kw"][t]
+    crf = calc_crf(w, n_years)
+    ac  = cap * crf
+    fo  = cap * ti["opex_pct"][t]
+    tc  = ac + fo + ti["feedstock_cost"][t] + ti["other_opex"][t]
+    co2 = o * ti["co2_abated_factor"][t]
+    mp  = ti["market_price"][t]
+    dr  = o * mp if o > 0 else 0
+
+    def active(mi): return MBM_MATRIX[t][mi] is not None
+
+    for sim_idx in range(n_sims):
+        npv_sim = -cap
+        for yr in range(n_years):
+            p_yr = {}
+            for mech, path in paths.items():
+                p_yr[mech] = path[sim_idx, yr]
+
+            ets_p   = p_yr.get("ets",  DEFAULT_PRICES["ets"])
+            ctax_p  = p_yr.get("ctax", DEFAULT_PRICES["ctax"])
+            fuel_p  = p_yr.get("fuel", DEFAULT_PRICES["fuel"])
+            cfd_s   = p_yr.get("cfd_spread", 40)
+            ccfd_s  = p_yr.get("ccfd_spread", 40)
+            cbam_p  = p_yr.get("cbam",   DEFAULT_PRICES["cbam"])
+            cor_p   = p_yr.get("corsia", DEFAULT_PRICES["corsia"])
+            imo_p   = p_yr.get("imo",    DEFAULT_PRICES["imo"])
+            vcm_p   = p_yr.get("vcm",    DEFAULT_PRICES["vcm"])
+            amc_p   = p_yr.get("amc",    DEFAULT_PRICES["amc"])
+            fb_p    = p_yr.get("feebate",DEFAULT_PRICES["feebate"])
+
+            # If country prices provided, override
+            if base_prices:
+                if base_prices.get("ets",  0) > 0: ets_p  = base_prices["ets"]
+                if base_prices.get("ctax", 0) > 0: ctax_p = base_prices["ctax"]
+
+            e   = co2*ets_p             if active(0) and co2>0 else 0
+            cx  = co2*ctax_p            if active(1) and co2>0 else 0
+            fu  = o*fuel_p*0.85         if active(2) and o>0   else 0
+            cf  = o*max(0,cfd_s)*0.5    if active(3) and o>0   else 0
+            ccf = co2*max(0,ccfd_s)*0.5 if active(4) and co2>0 else 0
+            cb  = co2*cbam_p*0.85       if active(5) and co2>0 else 0
+            co_ = co2*cor_p*1.05        if active(6) and co2>0 else 0
+            im  = co2*imo_p*0.95        if active(7) and co2>0 else 0
+            v   = co2*vcm_p             if active(8) and co2>0 else 0
+            am  = (o/1000)*amc_p*0.5    if active(9) and o>0   else 0
+            fb  = co2*fb_p*0.5          if active(10)and co2>0 else 0
+
+            mbm_yr = e+cx+fu+cf+ccf+cb+co_+im+v+am+fb
+            results["total_mbm"][sim_idx, yr] = mbm_yr
+
+            cf_yr = dr + mbm_yr - tc
+            npv_sim += cf_yr / (1 + w) ** (yr + 1)
+
+        results["npv"][sim_idx] = npv_sim
+
+    # Summarise
+    summary = {
+        "npv_p10":  float(np.percentile(results["npv"], 10)),
+        "npv_p50":  float(np.percentile(results["npv"], 50)),
+        "npv_p90":  float(np.percentile(results["npv"], 90)),
+        "npv_mean": float(np.mean(results["npv"])),
+        "npv_std":  float(np.std(results["npv"])),
+        "prob_positive": float(np.mean(results["npv"] > 0)),
+        "mbm_annual_p10":  np.percentile(results["total_mbm"], 10, axis=0).tolist(),
+        "mbm_annual_p50":  np.percentile(results["total_mbm"], 50, axis=0).tolist(),
+        "mbm_annual_p90":  np.percentile(results["total_mbm"], 90, axis=0).tolist(),
+        "npv_distribution": results["npv"].tolist(),
+    }
+    return summary
+
+
 
 MBM_LABELS = {
     "ets":   ("ETS / Carbon Market",  "USD/tCO₂e"),
@@ -984,11 +1156,13 @@ def compute_country_excel(country_name, base_prices, t, ti):
 # ─────────────────────────────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────────────────────────────
-if "ti"        not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
-if "p"         not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
-if "tab"       not in st.session_state: st.session_state.tab = "setup"
-if "p_draft"   not in st.session_state: st.session_state.p_draft  = dict(DEFAULT_PRICES)
-if "ti_draft"  not in st.session_state: st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
+if "ti"          not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
+if "p"           not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
+if "tab"         not in st.session_state: st.session_state.tab = "setup"
+if "ti_draft"    not in st.session_state: st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
+if "mc_scenario" not in st.session_state: st.session_state.mc_scenario = "Stated Policies (SPS)"
+if "mc_nsims"    not in st.session_state: st.session_state.mc_nsims    = 500
+if "mc_cache"    not in st.session_state: st.session_state.mc_cache    = {}
 
 # ─────────────────────────────────────────────────────────────────
 # EXTRA CSS  (on top of existing base CSS)
@@ -1174,13 +1348,22 @@ with st.sidebar:
     if st.button("Reset All Defaults", key="sb_reset_all", use_container_width=True):
         st.session_state.p        = dict(DEFAULT_PRICES)
         st.session_state.ti       = {k: list(v) for k,v in DEFAULTS.items()}
-        st.session_state.p_draft  = dict(DEFAULT_PRICES)
         st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
+        st.session_state.mc_cache = {}
         st.rerun()
 
 # ─────────────────────────────────────────────────────────────────
 # PRE-COMPUTE  (from committed params only)
 # ─────────────────────────────────────────────────────────────────
+# Use model-driven prices (P50 median forecast) for all calculations
+_model_paths = generate_price_paths(n_years=25, n_sims=200,
+                                    scenario=st.session_state.mc_scenario, seed=42)
+_model_prices = paths_to_price_dict(_model_paths, year_idx=0)
+# Merge with country-level prices for the active session
+_active_prices = dict(DEFAULT_PRICES)
+_active_prices.update({k: v for k, v in _model_prices.items() if k in DEFAULT_PRICES})
+st.session_state.p = _active_prices
+
 AR  = [compute(st.session_state.p, i, st.session_state.ti) for i in range(N)]
 TR  = sum(r["tr"] for r in AR); TM = sum(r["mb"] for r in AR)
 TD  = sum(r["dr"] for r in AR); TC = sum(r["tc"] for r in AR)
@@ -1195,241 +1378,191 @@ page = st.session_state.tab
 # SETUP PAGE — full main-area form, Apply → redirect to Viability
 # ══════════════════════════════════════════════════════════════════
 if page == "setup":
-    pd_ = st.session_state.p_draft
     td_ = st.session_state.ti_draft
 
-    # ── EXTRA CSS for this page ───────────────────────────────────
+    # ── CSS (reuse existing input-item style) ─────────────────────
     st.markdown("""
     <style>
-    /* Hero section */
     .hero-wrap {
         background: linear-gradient(135deg, #064e3b 0%, #065f46 45%, #059669 100%);
-        border-radius: 18px; padding: 52px 56px 48px;
-        margin-bottom: 40px; position: relative; overflow: hidden;
+        border-radius: 18px; padding: 48px 56px 44px;
+        margin-bottom: 36px; position: relative; overflow: hidden;
     }
-    .hero-wrap::before {
-        content: ""; position: absolute;
-        right: -80px; top: -80px; width: 320px; height: 320px;
-        border-radius: 50%; background: rgba(255,255,255,0.05);
-    }
-    .hero-wrap::after {
-        content: ""; position: absolute;
-        right: 60px; bottom: -60px; width: 200px; height: 200px;
-        border-radius: 50%; background: rgba(52,211,153,0.08);
-    }
-    .hero-badge {
-        display: inline-block; background: rgba(255,255,255,0.15);
-        border: 1px solid rgba(255,255,255,0.25); border-radius: 99px;
-        padding: 4px 14px; font-size: 0.65rem; font-weight: 700;
-        color: rgba(255,255,255,0.85); text-transform: uppercase;
-        letter-spacing: 0.12em; margin-bottom: 16px;
-    }
-    .hero-title {
-        font-size: 2.4rem; font-weight: 900; color: #ffffff;
-        letter-spacing: -0.03em; line-height: 1.1; margin-bottom: 14px;
-    }
-    .hero-sub {
-        font-size: 1.0rem; color: rgba(255,255,255,0.72);
-        font-weight: 400; line-height: 1.6; max-width: 560px; margin-bottom: 32px;
-    }
-    .hero-start-btn {
-        display: inline-block; background: #ffffff; color: #059669;
-        font-size: 0.9rem; font-weight: 800; padding: 12px 32px;
-        border-radius: 10px; cursor: pointer; text-decoration: none;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-        transition: all 0.2s ease; letter-spacing: 0.02em;
-        border: none;
-    }
-    .hero-start-btn:hover {
-        transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-    }
-
-    /* How it works cards */
-    .hiw-grid { display: flex; gap: 16px; margin-bottom: 40px; }
-    .hiw-card {
-        flex: 1; background: #ffffff; border: 1.5px solid #e2e8f0;
-        border-radius: 14px; padding: 24px 22px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
-        position: relative; overflow: hidden;
-        transition: box-shadow 0.2s ease;
-    }
-    .hiw-card:hover { box-shadow: 0 6px 20px rgba(5,150,105,0.12); }
-    .hiw-step {
-        width: 32px; height: 32px; border-radius: 8px;
-        background: linear-gradient(135deg,#059669,#34d399);
-        display: flex; align-items: center; justify-content: center;
-        font-size: 0.75rem; font-weight: 900; color: #fff;
-        margin-bottom: 14px; box-shadow: 0 2px 8px rgba(5,150,105,0.3);
-    }
-    .hiw-title {
-        font-size: 0.85rem; font-weight: 800; color: #1f2937;
-        margin-bottom: 8px; letter-spacing: -0.01em;
-    }
-    .hiw-desc {
-        font-size: 0.78rem; color: #6b7280; line-height: 1.55; font-weight: 400;
-    }
-
-    /* Input cards — rich dark-to-light green gradient */
+    .hero-wrap::before { content:""; position:absolute; right:-80px; top:-80px;
+        width:320px; height:320px; border-radius:50%; background:rgba(255,255,255,0.05); }
+    .hero-badge { display:inline-block; background:rgba(255,255,255,0.18);
+        border:1px solid rgba(255,255,255,0.25); border-radius:99px;
+        padding:4px 14px; font-size:0.65rem; font-weight:700;
+        color:rgba(255,255,255,0.85); text-transform:uppercase;
+        letter-spacing:0.12em; margin-bottom:16px; }
+    .hero-title { font-size:2.2rem; font-weight:900; color:#ffffff;
+        letter-spacing:-0.03em; line-height:1.1; margin-bottom:12px; }
+    .hero-sub { font-size:0.95rem; color:rgba(255,255,255,0.72);
+        line-height:1.6; max-width:620px; margin-bottom:28px; }
+    .hiw-grid { display:flex; gap:16px; margin-bottom:36px; }
+    .hiw-card { flex:1; background:#ffffff; border:1.5px solid #e2e8f0;
+        border-radius:14px; padding:22px 20px; box-shadow:0 2px 10px rgba(0,0,0,0.04); }
+    .hiw-step { width:30px; height:30px; border-radius:8px;
+        background:linear-gradient(135deg,#059669,#34d399);
+        display:flex; align-items:center; justify-content:center;
+        font-size:0.72rem; font-weight:900; color:#fff; margin-bottom:12px; }
+    .hiw-title { font-size:0.83rem; font-weight:800; color:#1f2937; margin-bottom:6px; }
+    .hiw-desc  { font-size:0.76rem; color:#6b7280; line-height:1.55; }
     .input-item {
         background: linear-gradient(135deg, #064e3b 0%, #065f46 40%, #059669 75%, #34d399 100%);
-        border: 1px solid #047857;
-        border-radius: 12px; padding: 12px 16px 10px;
-        margin-bottom: 8px;
-        transition: box-shadow 0.15s;
+        border: 1px solid #047857; border-radius: 12px; padding: 12px 16px 10px; margin-bottom: 8px;
     }
-    .input-item:focus-within {
-        box-shadow: 0 0 0 3px rgba(52,211,153,0.35), 0 6px 20px rgba(5,150,105,0.25);
-        border-color: #34d399;
-    }
-    .input-lbl {
-        font-size: 0.59rem; font-weight: 800; color: rgba(255,255,255,0.65);
-        text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px;
-    }
-    .input-item [data-testid="stNumberInput"] { background: transparent !important; }
-    .input-item [data-testid="stNumberInput"] label { display: none !important; }
+    .input-lbl { font-size:0.59rem; font-weight:800; color:rgba(255,255,255,0.65);
+        text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px; }
+    .input-item [data-testid="stNumberInput"] label { display:none !important; }
     .input-item [data-testid="stNumberInput"] input {
-        background: transparent !important;
-        border: none !important; border-radius: 0 !important;
-        padding: 0 !important; font-size: 1.18rem !important;
-        font-weight: 800 !important; color: #ffffff !important;
-        box-shadow: none !important;
-    }
+        background:transparent !important; border:none !important;
+        font-size:1.18rem !important; font-weight:800 !important;
+        color:#ffffff !important; box-shadow:none !important; }
     .input-item [data-testid="stNumberInput"] > div {
-        background: transparent !important;
-        border: none !important; border-radius: 0 !important; padding: 0 !important;
-    }
+        background:transparent !important; border:none !important; padding:0 !important; }
     .input-item [data-testid="stNumberInput"] button {
-        background: rgba(255,255,255,0.15) !important;
-        border: 1px solid rgba(255,255,255,0.3) !important;
-        color: #ffffff !important; border-radius: 6px !important;
-        font-weight: 700 !important; backdrop-filter: blur(4px) !important;
-        transition: background 0.12s, transform 0.1s !important;
-    }
-    .input-item [data-testid="stNumberInput"] button:hover {
-        background: rgba(255,255,255,0.28) !important; transform: scale(1.1) !important;
-    }
-
-    /* Section header */
-    .param-section-hdr {
-        font-size: 0.67rem; font-weight: 800; color: #374151;
-        text-transform: uppercase; letter-spacing: 0.12em;
-        margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
-    }
-    .param-section-hdr::after {
-        content: ""; flex:1; height: 1.5px;
-        background: linear-gradient(90deg, #6ee7b7, transparent);
-    }
+        background:rgba(255,255,255,0.15) !important; border:1px solid rgba(255,255,255,0.3) !important;
+        color:#ffffff !important; border-radius:6px !important; font-weight:700 !important; }
+    .param-section-hdr { font-size:0.67rem; font-weight:800; color:#374151;
+        text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;
+        display:flex; align-items:center; gap:8px; }
+    .param-section-hdr::after { content:""; flex:1; height:1.5px;
+        background:linear-gradient(90deg,#6ee7b7,transparent); }
+    .apply-btn-wrap .stButton > button {
+        background: linear-gradient(135deg, #059669, #10b981) !important;
+        color: #fff !important; border: none !important; font-size: 0.88rem !important;
+        font-weight: 700 !important; padding: 10px 32px !important;
+        border-radius: 10px !important; box-shadow: 0 4px 16px rgba(5,150,105,0.35) !important; }
+    .scenario-card { background:#f0fdf4; border:1.5px solid #d1fae5;
+        border-radius:12px; padding:16px 18px; margin-bottom:6px; }
+    .scenario-card.active { background:#059669; border-color:#047857; }
+    .price-read-badge { display:inline-flex; align-items:center; gap:6px;
+        background:#dbeafe; border:1px solid #93c5fd; border-radius:8px;
+        padding:4px 12px; font-size:0.68rem; font-weight:700; color:#1e3a8a;
+        margin-bottom:12px; }
     </style>
     """, unsafe_allow_html=True)
 
-    # ── HERO SECTION ─────────────────────────────────────────────
+    # ── HERO ──────────────────────────────────────────────────────
     st.markdown("""
     <div class="hero-wrap">
-      <div class="hero-badge">MBM Revenue Model v2</div>
-      <div class="hero-title">Model your green<br>investment returns.</div>
+      <div class="hero-badge">MBM Revenue Model v3</div>
+      <div class="hero-title">Forecast your green<br>investment returns.</div>
       <div class="hero-sub">
-        Evaluate revenue potential across 44 low-carbon technologies in 194 countries.
-        Set MBM policy prices, configure technology parameters, and run the analysis
-        to see viability maps and country-level NPV breakdowns.
+        MBM prices are now <strong>model-driven</strong> — calibrated from real carbon market data
+        with Monte Carlo uncertainty. You configure the technology; we forecast the policy revenue.
+        Select a scenario, set technology parameters, and run stochastic NPV analysis across
+        44 technologies and 194 countries.
       </div>
-      <a class="hero-start-btn" href="#parameter-setup">Configure Parameters</a>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── HOW IT WORKS ─────────────────────────────────────────────
+    # ── HOW IT WORKS ──────────────────────────────────────────────
     st.markdown("""
     <div class="hiw-grid">
       <div class="hiw-card">
         <div class="hiw-step">1</div>
-        <div class="hiw-title">Set MBM Prices</div>
+        <div class="hiw-title">Choose Price Scenario</div>
         <div class="hiw-desc">
-          Input carbon market prices (ETS, Carbon Tax, VCM), levy rates (CBAM, IMO, CORSIA),
-          contract parameters (CfD, CCfD), and energy commodity assumptions.
-          These propagate across all 44 technologies and 194 countries.
+          Select from three calibrated IEA scenarios (NZE / SPS / CPS).
+          MBM prices are set by the model using real market data — not manual entry.
+          Stochastic paths show the revenue distribution, not just a point estimate.
         </div>
       </div>
       <div class="hiw-card">
         <div class="hiw-step">2</div>
         <div class="hiw-title">Configure Technology</div>
         <div class="hiw-desc">
-          Select a technology and adjust its scale, CAPEX, OPEX structure,
-          and CO₂ abatement factor. Country-specific feedstock costs are
-          automatically derived from local energy prices.
+          Input what you control: installed capacity, CAPEX, OPEX, project lifetime,
+          CO₂ abatement factor, and WACC. Country energy prices automatically
+          adjust the direct revenue and feedstock cost.
         </div>
       </div>
       <div class="hiw-card">
         <div class="hiw-step">3</div>
-        <div class="hiw-title">Apply & Explore</div>
+        <div class="hiw-title">Run Stochastic Analysis</div>
         <div class="hiw-desc">
-          Click Apply to run the model. Navigate to <strong>Technology Viability</strong>
-          for the world map and NPV rankings, or <strong>Country Level</strong>
-          for detailed MBM breakdowns and NPV projections by country.
+          Monte Carlo simulation runs 500 price paths. Output includes
+          P10/P50/P90 revenue bands, NPV distribution histogram,
+          probability of positive NPV, and a tornado chart of
+          price sensitivity per mechanism.
         </div>
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── ANCHOR for scroll ─────────────────────────────────────────
-    st.markdown('<div id="parameter-setup"></div>', unsafe_allow_html=True)
+    # ── PRICE SCENARIO SELECTOR ───────────────────────────────────
+    st.markdown('<div class="sec-head">MBM Price Scenario</div>', unsafe_allow_html=True)
+    st.markdown('<div class="price-read-badge">🔒 MBM prices are model-driven — based on calibrated carbon market forecasts</div>', unsafe_allow_html=True)
 
-    # ── MBM PRICE CONTROLS ──────────────────────────────────────
-    st.markdown('<div class="sec-head">MBM Price Controls</div>', unsafe_allow_html=True)
+    sc_c1, sc_c2, sc_c3 = st.columns(3)
+    scenario_descriptions = {
+        "Net Zero (NZE)":        ("🌍 Ambitious", "Carbon prices rise sharply to meet 1.5°C pathway. ETS reaches ~$115/t by 2030, Carbon Tax ~$87/t. Highest MBM revenue scenario.", "#065f46", "#f0fdf4"),
+        "Stated Policies (SPS)": ("📋 Baseline",  "Current and announced policies maintained. ETS ~$72/t, Carbon Tax ~$48/t. Central case for most analyses.", "#1e3a8a", "#eff6ff"),
+        "Current Policy (CPS)":  ("📉 Conservative","Only policies in force today. Carbon prices grow slowly. ETS ~$43/t, Carbon Tax ~$29/t. Conservative/downside case.", "#7f1d1d", "#fff1f2"),
+    }
+    for col, (sc_name, (badge, desc, color, bg)) in zip([sc_c1, sc_c2, sc_c3], scenario_descriptions.items()):
+        with col:
+            is_active = st.session_state.mc_scenario == sc_name
+            border_color = color if is_active else "#e2e8f0"
+            bg_color = bg if is_active else "#ffffff"
+            st.markdown(f"""
+            <div style="background:{bg_color};border:2px solid {border_color};border-radius:12px;
+                        padding:16px 18px;margin-bottom:6px;{'box-shadow:0 0 0 3px '+bg+';' if is_active else ''}">
+              <div style="font-size:0.7rem;font-weight:800;color:{color};text-transform:uppercase;
+                          letter-spacing:0.08em;margin-bottom:8px;">{badge} {'✓ Selected' if is_active else ''}</div>
+              <div style="font-size:0.9rem;font-weight:800;color:#111827;margin-bottom:6px;">{sc_name}</div>
+              <div style="font-size:0.76rem;color:#6b7280;line-height:1.5;">{desc}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button(f"Select {sc_name.split(' ')[0]}", key=f"sc_{sc_name[:3]}", use_container_width=True):
+                st.session_state.mc_scenario = sc_name
+                st.session_state.mc_cache    = {}
+                st.rerun()
 
-    # 4-column section cards with embedded number inputs
-    mbm_c1, mbm_c2, mbm_c3, mbm_c4 = st.columns(4)
+    # ── MODEL PRICE PREVIEW (read-only) ──────────────────────────
+    with st.expander("📊 View model-driven MBM price forecasts (P50 median)", expanded=False):
+        _prev_paths = generate_price_paths(n_years=1, n_sims=500,
+                                           scenario=st.session_state.mc_scenario, seed=42)
+        _prev_p = paths_to_price_dict(_prev_paths, 0)
+        mults   = PRICE_SCENARIOS.get(st.session_state.mc_scenario, {})
 
-    with mbm_c1:
-        st.markdown('<div class="param-section-hdr">Carbon Pricing</div>', unsafe_allow_html=True)
-        def ni(label, key, **kw):
-            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
-            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
-            st.markdown('</div>', unsafe_allow_html=True)
-            return val
-        pd_["ets"]    = ni("ETS  ·  USD/tCO₂e",        "sp_ets",    min_value=5,   max_value=300, value=int(pd_["ets"]),    step=5)
-        pd_["ctax"]   = ni("Carbon Tax  ·  USD/tCO₂e",  "sp_ctax",   min_value=0,   max_value=200, value=int(pd_["ctax"]),   step=5)
-        pd_["vcm"]    = ni("VCM/CDM  ·  USD/tCO₂e",     "sp_vcm",    min_value=5,   max_value=300, value=int(pd_["vcm"]),    step=5)
-        pd_["corsia"] = ni("CORSIA  ·  USD/tCO₂e",       "sp_corsia", min_value=3,   max_value=100, value=int(pd_["corsia"]), step=1)
+        prev_cols = st.columns(4)
+        price_display = [
+            ("ETS / Carbon Market", f"${_prev_p.get('ets', 70):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("Carbon Tax", f"${_prev_p.get('ctax', 50):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("CBAM", f"${_prev_p.get('cbam', 55):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("CORSIA", f"${_prev_p.get('corsia', 22):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("IMO Levy", f"${_prev_p.get('imo', 380):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("VCM / CDM", f"${_prev_p.get('vcm', 100):.0f}/tCO₂e", "USD/tCO₂e"),
+            ("Fuel Mandate", f"${_prev_p.get('fuel', 240):.0f}/MWh", "USD/MWh"),
+            ("AMC", f"${_prev_p.get('amc', 100):.0f}/unit", "USD/unit"),
+        ]
+        for i, (name, val, unit) in enumerate(price_display):
+            with prev_cols[i % 4]:
+                st.markdown(kpi(val, name, f"Model P50 · {unit}"), unsafe_allow_html=True)
 
-    with mbm_c2:
-        st.markdown('<div class="param-section-hdr">Levies & Schemes</div>', unsafe_allow_html=True)
-        def ni2(label, key, **kw):
-            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
-            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
-            st.markdown('</div>', unsafe_allow_html=True)
-            return val
-        pd_["cbam"]    = ni2("CBAM  ·  USD/tCO₂e",      "sp_cbam",    min_value=10,  max_value=150, value=int(pd_["cbam"]),    step=5)
-        pd_["imo"]     = ni2("IMO Levy  ·  USD/tCO₂e",   "sp_imo",     min_value=50,  max_value=800, value=int(pd_["imo"]),     step=10)
-        pd_["feebate"] = ni2("Feebate  ·  USD/tCO₂e",    "sp_feebate", min_value=0,   max_value=150, value=int(pd_["feebate"]), step=5)
-        pd_["amc"]     = ni2("AMC  ·  USD/unit",          "sp_amc",     min_value=50,  max_value=300, value=int(pd_["amc"]),     step=10)
+        st.caption("ℹ️ These are median (P50) values from 500 Monte Carlo paths. "
+                   "The Monte Carlo simulation generates the full distribution — "
+                   "P10 (downside) and P90 (upside) are shown in the analysis pages.")
 
-    with mbm_c3:
-        st.markdown('<div class="param-section-hdr">Contracts for Difference</div>', unsafe_allow_html=True)
-        def ni3(label, key, **kw):
-            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
-            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
-            st.markdown('</div>', unsafe_allow_html=True)
-            return val
-        pd_["cfd_strike"]  = ni3("CfD Strike  ·  USD/MWh",        "sp_cfd_s",  min_value=50,  max_value=300, value=int(pd_["cfd_strike"]),  step=5)
-        pd_["cfd_ref"]     = ni3("CfD Reference  ·  USD/MWh",      "sp_cfd_r",  min_value=30,  max_value=200, value=int(pd_["cfd_ref"]),     step=5)
-        pd_["ccfd_strike"] = ni3("CCfD Strike  ·  USD/tCO₂e",      "sp_ccfd_s", min_value=30,  max_value=250, value=int(pd_["ccfd_strike"]), step=5)
-        pd_["ccfd_ref"]    = ni3("CCfD Reference  ·  USD/tCO₂e",   "sp_ccfd_r", min_value=10,  max_value=150, value=int(pd_["ccfd_ref"]),    step=5)
+    # ── MONTE CARLO SETTINGS ──────────────────────────────────────
+    mc_c1, mc_c2 = st.columns([1, 3])
+    with mc_c1:
+        st.markdown('<div class="param-section-hdr">Simulation Settings</div>', unsafe_allow_html=True)
+        st.session_state.mc_nsims = st.select_slider(
+            "Number of simulations",
+            options=[100, 200, 500, 1000],
+            value=st.session_state.mc_nsims,
+            key="mc_nsims_slider",
+            help="More simulations = more accurate distribution but slower. 500 is recommended."
+        )
+        st.caption(f"Running {st.session_state.mc_nsims} Monte Carlo paths per analysis.")
 
-    with mbm_c4:
-        st.markdown('<div class="param-section-hdr">Energy Prices</div>', unsafe_allow_html=True)
-        def ni4(label, key, **kw):
-            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
-            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
-            st.markdown('</div>', unsafe_allow_html=True)
-            return val
-        pd_["fuel"]        = ni4("Fuel Mandate  ·  USD/MWh",  "sp_fuel",  min_value=100, max_value=600, value=int(pd_["fuel"]),       step=10)
-        pd_["electricity"] = ni4("Grid Elec.  ·  USD/MWh",    "sp_elec",  min_value=20,  max_value=200, value=int(pd_["electricity"]), step=5)
-        pd_["gas"]         = ni4("Nat. Gas  ·  USD/MMBtu",     "sp_gas",   min_value=2,   max_value=30,  value=int(pd_["gas"]),         step=1)
-        pd_["biomass"]     = ni4("Biomass  ·  USD/MWh",        "sp_bio",   min_value=10,  max_value=120, value=int(pd_["biomass"]),     step=5)
-
-    st.session_state.p_draft = pd_
-
-    # ── TECHNOLOGY PARAMETERS ───────────────────────────────────
+    # ── TECHNOLOGY PARAMETERS ─────────────────────────────────────
     st.markdown('<div class="sec-head">Technology Parameters</div>', unsafe_allow_html=True)
+    st.caption("Configure what you know — the technology design. MBM prices come from the model.")
 
     tp_c1, tp_c2 = st.columns([1, 2])
     with tp_c1:
@@ -1441,7 +1574,7 @@ if page == "setup":
         cs_, _   = CAT_STYLE.get(cat_sp_, ("cat-energy",""))
         st.markdown(f'<span class="cat-badge {cs_}">{cat_sp_}</span>', unsafe_allow_html=True)
 
-        # MBM chips
+        # MBM chips (now read from model)
         chips_html = ""
         for mi, mk in enumerate(["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]):
             val_ = MBM_MATRIX[t_sp][mi]
@@ -1478,22 +1611,76 @@ if page == "setup":
 
     st.session_state.ti_draft = td_
 
-    # ── APPLY BUTTON ─────────────────────────────────────────────
+    # ── APPLY + QUICK MC PREVIEW ──────────────────────────────────
     st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    btn_c1, btn_c2, btn_c3 = st.columns([2, 1, 5])
+    btn_c1, btn_c2, btn_c3, btn_c4 = st.columns([2, 1.5, 1, 3.5])
     with btn_c1:
         st.markdown('<div class="apply-btn-wrap">', unsafe_allow_html=True)
         if st.button("Apply & Run Analysis", key="sp_apply", use_container_width=True, type="primary"):
-            st.session_state.p   = dict(pd_)
-            st.session_state.ti  = {k: list(v) for k,v in td_.items()}
-            st.session_state.tab = "Technology Viability"
+            st.session_state.ti      = {k: list(v) for k,v in td_.items()}
+            st.session_state.mc_cache = {}
+            st.session_state.tab     = "Technology Viability"
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     with btn_c2:
-        if st.button("Reset Defaults", key="sp_reset", use_container_width=True):
-            st.session_state.p_draft  = dict(DEFAULT_PRICES)
+        if st.button("⚡ Quick MC Preview", key="sp_mc_preview", use_container_width=True,
+                     help="Run stochastic simulation on selected technology"):
+            st.session_state.ti = {k: list(v) for k,v in td_.items()}
+            cache_key = f"mc_{t_sp}_{st.session_state.mc_scenario}_{st.session_state.mc_nsims}"
+            if cache_key not in st.session_state.mc_cache:
+                with st.spinner(f"Running {st.session_state.mc_nsims} Monte Carlo paths…"):
+                    st.session_state.mc_cache[cache_key] = compute_mc_revenue(
+                        t_sp, st.session_state.ti,
+                        n_sims=st.session_state.mc_nsims,
+                        scenario=st.session_state.mc_scenario
+                    )
+            mc = st.session_state.mc_cache[cache_key]
+            st.markdown('<div class="sec-head">Monte Carlo Preview</div>', unsafe_allow_html=True)
+            pk1, pk2, pk3, pk4 = st.columns(4)
+            pk1.markdown(kpi(f"${mc['npv_p50']/1e6:.1f}M", "NPV P50", f"Scenario: {st.session_state.mc_scenario[:3]}"), unsafe_allow_html=True)
+            pk2.markdown(kpi(f"${mc['npv_p10']/1e6:.1f}M", "NPV P10 (Downside)", "10th percentile"), unsafe_allow_html=True)
+            pk3.markdown(kpi(f"${mc['npv_p90']/1e6:.1f}M", "NPV P90 (Upside)", "90th percentile"), unsafe_allow_html=True)
+            pk4.markdown(kpi(f"{mc['prob_positive']*100:.0f}%", "Prob (NPV > 0)", f"N={st.session_state.mc_nsims} sims"), unsafe_allow_html=True)
+
+            # NPV histogram
+            import plotly.graph_objects as go
+            fig_hist = go.Figure(go.Histogram(
+                x=[v/1e6 for v in mc["npv_distribution"]],
+                nbinsx=40,
+                marker_color="#059669", opacity=0.75,
+            ))
+            fig_hist.add_vline(x=mc["npv_p10"]/1e6, line_dash="dot", line_color="#dc2626",
+                               annotation_text="P10", annotation_font_color="#dc2626")
+            fig_hist.add_vline(x=mc["npv_p50"]/1e6, line_dash="solid", line_color="#064e3b",
+                               annotation_text="P50", annotation_font_color="#064e3b")
+            fig_hist.add_vline(x=mc["npv_p90"]/1e6, line_dash="dot", line_color="#1e3a8a",
+                               annotation_text="P90", annotation_font_color="#1e3a8a")
+            fig_hist.add_vline(x=0, line_color="#e2e8f0", line_width=2)
+            fig_hist.update_layout(**pl(300), title=dict(text=f"NPV Distribution — {sel_sp}",
+                                   font=dict(size=11, color=FC), y=0.97))
+            fig_hist.update_xaxes(title_text="NPV ($M)")
+            fig_hist.update_yaxes(title_text="Simulations")
+            st.plotly_chart(fig_hist, use_container_width=True)
+
+            # Revenue fan chart (P10/P50/P90 by year)
+            years_list = list(range(1, int(st.session_state.ti["project_lifetime"][t_sp])+1))
+            fig_fan = go.Figure()
+            fig_fan.add_trace(go.Scatter(
+                x=years_list+years_list[::-1],
+                y=[v/1e6 for v in mc["mbm_annual_p90"]]+[v/1e6 for v in mc["mbm_annual_p10"][::-1]],
+                fill="toself", fillcolor="rgba(5,150,105,0.12)",
+                line=dict(color="rgba(5,150,105,0)"), name="P10–P90 Band"
+            ))
+            fig_fan.add_trace(go.Scatter(x=years_list, y=[v/1e6 for v in mc["mbm_annual_p50"]],
+                line=dict(color="#059669", width=2.5), name="P50 MBM Revenue"))
+            fig_fan.update_layout(**pl(260))
+            fig_fan.update_xaxes(title_text="Year"); fig_fan.update_yaxes(title_text="MBM Revenue ($M)")
+            st.plotly_chart(fig_fan, use_container_width=True)
+    with btn_c3:
+        if st.button("Reset", key="sp_reset", use_container_width=True):
             st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
             st.rerun()
+
 
 # ═══════ PAGE: TECHNOLOGY VIABILITY ═══════
 elif page == "Technology Viability":
@@ -1970,3 +2157,86 @@ elif page == "Country Level":
     st.dataframe(df_npv_cl.style.bar(subset=["NPV with MBM ($M)","NPV no MBM ($M)","MBM Uplift ($M)"],
                  color="#bbf7d0", align="mid"), use_container_width=True, height=480)
     st.download_button("⬇ Download NPV CSV", df_npv_cl.to_csv(index=False).encode(), "npv_analysis.csv", "text/csv")
+    # ── MONTE CARLO SECTION ──────────────────────────────────────
+    st.markdown('<div class="sec-head">Stochastic Revenue Analysis — Monte Carlo</div>', unsafe_allow_html=True)
+
+    mc_col1, mc_col2 = st.columns([1, 3])
+    with mc_col1:
+        mc_sc_sel = st.selectbox("Price Scenario", list(PRICE_SCENARIOS.keys()),
+                                  index=list(PRICE_SCENARIOS.keys()).index(st.session_state.mc_scenario),
+                                  key="sv_mc_scenario")
+        mc_n_sel  = st.select_slider("Simulations", options=[100,200,500,1000],
+                                     value=st.session_state.mc_nsims, key="sv_mc_nsims")
+        run_mc_sv = st.button("▶ Run Monte Carlo", key="sv_run_mc", use_container_width=True, type="primary")
+
+    with mc_col2:
+        mc_cache_key = f"mc_{t_sv}_{mc_sc_sel}_{mc_n_sel}"
+        if run_mc_sv or mc_cache_key in st.session_state.mc_cache:
+            if run_mc_sv and mc_cache_key not in st.session_state.mc_cache:
+                st.session_state.mc_scenario = mc_sc_sel
+                st.session_state.mc_nsims    = mc_n_sel
+                with st.spinner(f"Running {mc_n_sel} Monte Carlo simulations for {sel_sv}…"):
+                    st.session_state.mc_cache[mc_cache_key] = compute_mc_revenue(
+                        t_sv, ti, n_sims=mc_n_sel, scenario=mc_sc_sel
+                    )
+
+            if mc_cache_key in st.session_state.mc_cache:
+                mc_sv = st.session_state.mc_cache[mc_cache_key]
+                mc_k1, mc_k2, mc_k3, mc_k4, mc_k5 = st.columns(5)
+                mc_k1.markdown(kpi(f"${mc_sv['npv_p50']/1e6:.1f}M", "NPV P50", "Median"), unsafe_allow_html=True)
+                mc_k2.markdown(kpi(f"${mc_sv['npv_p10']/1e6:.1f}M", "NPV P10", "Downside 10%"), unsafe_allow_html=True)
+                mc_k3.markdown(kpi(f"${mc_sv['npv_p90']/1e6:.1f}M", "NPV P90", "Upside 90%"), unsafe_allow_html=True)
+                mc_k4.markdown(kpi(f"{mc_sv['prob_positive']*100:.0f}%", "P(NPV>0)", f"N={mc_n_sel}"), unsafe_allow_html=True)
+                mc_k5.markdown(kpi(f"${mc_sv['npv_std']/1e6:.1f}M", "Std Dev", "Revenue volatility"), unsafe_allow_html=True)
+
+                mc_ch1, mc_ch2 = st.columns(2)
+                with mc_ch1:
+                    st.markdown('<div class="sec-head">NPV Distribution</div>', unsafe_allow_html=True)
+                    fig_hist_sv = go.Figure(go.Histogram(
+                        x=[v/1e6 for v in mc_sv["npv_distribution"]],
+                        nbinsx=40, marker_color="#059669", opacity=0.75,
+                    ))
+                    for pct, val, col, lbl in [
+                        (10, mc_sv["npv_p10"], "#dc2626", "P10"),
+                        (50, mc_sv["npv_p50"], "#064e3b", "P50"),
+                        (90, mc_sv["npv_p90"], "#1e3a8a", "P90"),
+                    ]:
+                        fig_hist_sv.add_vline(x=val/1e6, line_dash="dot" if pct!=50 else "solid",
+                                             line_color=col,
+                                             annotation_text=lbl, annotation_font_color=col,
+                                             annotation_font_size=10)
+                    fig_hist_sv.add_vline(x=0, line_color="#e2e8f0", line_width=2)
+                    fig_hist_sv.update_layout(**pl(300))
+                    fig_hist_sv.update_xaxes(title_text="NPV ($M)")
+                    fig_hist_sv.update_yaxes(title_text="Count")
+                    st.plotly_chart(fig_hist_sv, use_container_width=True)
+
+                with mc_ch2:
+                    st.markdown('<div class="sec-head">Annual MBM Revenue Fan (P10/P50/P90)</div>', unsafe_allow_html=True)
+                    years_sv = list(range(1, ti["project_lifetime"][t_sv]+1))
+                    fig_fan_sv = go.Figure()
+                    fig_fan_sv.add_trace(go.Scatter(
+                        x=years_sv + years_sv[::-1],
+                        y=[v/1e6 for v in mc_sv["mbm_annual_p90"]] +
+                          [v/1e6 for v in mc_sv["mbm_annual_p10"][::-1]],
+                        fill="toself", fillcolor="rgba(5,150,105,0.12)",
+                        line=dict(color="rgba(0,0,0,0)"), name="P10–P90 Band", showlegend=True,
+                    ))
+                    fig_fan_sv.add_trace(go.Scatter(
+                        x=years_sv, y=[v/1e6 for v in mc_sv["mbm_annual_p90"]],
+                        line=dict(color="#6ee7b7", width=1.5, dash="dot"), name="P90",
+                    ))
+                    fig_fan_sv.add_trace(go.Scatter(
+                        x=years_sv, y=[v/1e6 for v in mc_sv["mbm_annual_p50"]],
+                        line=dict(color="#059669", width=2.5), name="P50 MBM Rev",
+                    ))
+                    fig_fan_sv.add_trace(go.Scatter(
+                        x=years_sv, y=[v/1e6 for v in mc_sv["mbm_annual_p10"]],
+                        line=dict(color="#d1fae5", width=1.5, dash="dot"), name="P10",
+                    ))
+                    fig_fan_sv.update_layout(**pl(300))
+                    fig_fan_sv.update_xaxes(title_text="Year")
+                    fig_fan_sv.update_yaxes(title_text="Annual MBM Revenue ($M)")
+                    st.plotly_chart(fig_fan_sv, use_container_width=True)
+        else:
+            st.info("👆 Click **Run Monte Carlo** to generate P10/P50/P90 revenue distributions for this technology.")
