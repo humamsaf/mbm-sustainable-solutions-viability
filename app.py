@@ -1589,23 +1589,37 @@ if st.session_state.results_ready:
         name="Viable",
     ))
     fig_map.update_geos(
-        showcountries=True, countrycolor="#d1d5db",
-        showcoastlines=True, coastlinecolor="#e2e8f0",
-        showland=True, landcolor="#f9fafb",
-        showocean=True, oceancolor="#e0f2fe",
-        showframe=False, projection_type="equirectangular",
-        lataxis_range=[-60, 85],
-    )
+    showcountries=True,
+    countrycolor="#d1d5db",
+    showcoastlines=True,
+    coastlinecolor="#e2e8f0",
+    showland=True,
+    landcolor="#f9fafb",
+    showocean=True,
+    oceancolor="#e0f2fe",
+    showframe=False,
+    projection_type="equirectangular",
+    lataxis_range=[-60, 85],
+    bgcolor="rgba(0,0,0,0)",
+)
     fig_map.update_layout(
-        **pl(440, ml=0, mr=0, mt=8, mb=0),
-        geo=dict(bgcolor="rgba(0,0,0,0)"),
-        legend=dict(
-            orientation="h", x=0.01, y=0.01,
-            bgcolor="rgba(255,255,255,0.92)", bordercolor="#e2e8f0", borderwidth=1,
-            font=dict(size=10), itemsizing="constant",
-        ),
-        clickmode="event+select",
-    )
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="Inter", color="#374151", size=10),
+    height=440,
+    margin=dict(l=0, r=0, t=8, b=0),
+    legend=dict(
+        orientation="h",
+        x=0.01,
+        y=0.01,
+        bgcolor="rgba(255,255,255,0.92)",
+        bordercolor="#e2e8f0",
+        borderwidth=1,
+        font=dict(size=10),
+        itemsizing="constant",
+    ),
+    clickmode="event+select",
+)
     _map_event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="viability_map")
 
     # Handle map click
