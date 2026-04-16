@@ -1547,48 +1547,80 @@ if st.session_state.results_ready:
       </div>
     </div>
     """, unsafe_allow_html=True)
+# Scatter pin map
+df_pins = df_sv[df_sv["_lat"].notna()].copy()
 
-    # Scatter pin map
-    df_pins = df_sv[df_sv["_lat"].notna()].copy()
-    _viable_df    = df_pins[df_pins["Viable?"]=="Yes"]
-    _nonviable_df = df_pins[df_pins["Viable?"]=="No"]
+# Ukuran bubble berdasarkan besar hasil
+# Opsi utama: pakai abs(NPV) supaya nilai negatif besar tetap terlihat besar
+df_pins["_size_metric"] = df_pins["_npv"].abs().clip(lower=1)
 
-    fig_map = go.Figure()
-    fig_map.add_trace(go.Scattergeo(
-        lat=_nonviable_df["_lat"], lon=_nonviable_df["_lon"],
-        text=_nonviable_df["Country"],
-        customdata=_nonviable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
-        hovertemplate=(
-            "<b>%{customdata[0]}</b>  Not Viable<br>"
-            "NPV: <b>$%{customdata[1]:.1f}M</b>  |  R/C: <b>%{customdata[2]:.2f}x</b><br>"
-            "MBM: $%{customdata[3]:.2f}M  Cost: $%{customdata[4]:.2f}M<br>"
-            "MBMs: %{customdata[5]}<br>"
-            "Carbon: %{customdata[6]}<br>"
-            "<i>Click to open details</i><extra></extra>"
-        ),
-        mode="markers",
-        marker=dict(size=7, color="#dc2626", opacity=0.82,
-                    line=dict(width=0.8, color="#ffffff"), symbol="circle"),
-        name="Not Viable",
-    ))
-    fig_map.add_trace(go.Scattergeo(
-        lat=_viable_df["_lat"], lon=_viable_df["_lon"],
-        text=_viable_df["Country"],
-        customdata=_viable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
-        hovertemplate=(
-            "<b>%{customdata[0]}</b>  Viable<br>"
-            "NPV: <b>$%{customdata[1]:.1f}M</b>  |  R/C: <b>%{customdata[2]:.2f}x</b><br>"
-            "MBM: $%{customdata[3]:.2f}M  Cost: $%{customdata[4]:.2f}M<br>"
-            "MBMs: %{customdata[5]}<br>"
-            "Carbon: %{customdata[6]}<br>"
-            "<i>Click to open details</i><extra></extra>"
-        ),
-        mode="markers",
-        marker=dict(size=8, color="#059669", opacity=0.9,
-                    line=dict(width=0.8, color="#ffffff"), symbol="circle"),
-        name="Viable",
-    ))
-    fig_map.update_geos(
+# Kompres distribusi agar bubble tidak terlalu jomplang
+df_pins["_size_plot"] = np.sqrt(df_pins["_size_metric"])
+
+_viable_df = df_pins[df_pins["Viable?"] == "Yes"].copy()
+_nonviable_df = df_pins[df_pins["Viable?"] == "No"].copy()
+
+# sizeref global agar kedua trace memakai skala ukuran yang sama
+_desired_max_px = 22
+_size_ref = 2.0 * df_pins["_size_plot"].max() / (_desired_max_px ** 2) if len(df_pins) else 1
+
+fig_map = go.Figure()
+
+fig_map.add_trace(go.Scattergeo(
+    lat=_nonviable_df["_lat"],
+    lon=_nonviable_df["_lon"],
+    text=_nonviable_df["Country"],
+    customdata=_nonviable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
+    hovertemplate=(
+        "<b>%{customdata[0]}</b> Not Viable<br>"
+        "NPV: <b>$%{customdata[1]:.1f}M</b> | R/C: <b>%{customdata[2]:.2f}x</b><br>"
+        "MBM: $%{customdata[3]:.2f}M Cost: $%{customdata[4]:.2f}M<br>"
+        "MBMs: %{customdata[5]}<br>"
+        "Carbon: %{customdata[6]}<br>"
+        "<i>Click to open details</i><extra></extra>"
+    ),
+    mode="markers",
+    marker=dict(
+        size=_nonviable_df["_size_plot"],
+        sizemode="area",
+        sizeref=_size_ref,
+        sizemin=5,
+        color="#dc2626",
+        opacity=0.82,
+        line=dict(width=0.8, color="#ffffff"),
+        symbol="circle",
+    ),
+    name="Not Viable",
+))
+
+fig_map.add_trace(go.Scattergeo(
+    lat=_viable_df["_lat"],
+    lon=_viable_df["_lon"],
+    text=_viable_df["Country"],
+    customdata=_viable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
+    hovertemplate=(
+        "<b>%{customdata[0]}</b> Viable<br>"
+        "NPV: <b>$%{customdata[1]:.1f}M</b> | R/C: <b>%{customdata[2]:.2f}x</b><br>"
+        "MBM: $%{customdata[3]:.2f}M Cost: $%{customdata[4]:.2f}M<br>"
+        "MBMs: %{customdata[5]}<br>"
+        "Carbon: %{customdata[6]}<br>"
+        "<i>Click to open details</i><extra></extra>"
+    ),
+    mode="markers",
+    marker=dict(
+        size=_viable_df["_size_plot"],
+        sizemode="area",
+        sizeref=_size_ref,
+        sizemin=5,
+        color="#059669",
+        opacity=0.9,
+        line=dict(width=0.8, color="#ffffff"),
+        symbol="circle",
+    ),
+    name="Viable",
+))
+
+fig_map.update_geos(
     showcountries=True,
     countrycolor="#d1d5db",
     showcoastlines=True,
@@ -1602,7 +1634,8 @@ if st.session_state.results_ready:
     lataxis_range=[-60, 85],
     bgcolor="rgba(0,0,0,0)",
 )
-    fig_map.update_layout(
+
+fig_map.update_layout(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Inter", color="#374151", size=10),
@@ -1620,16 +1653,21 @@ if st.session_state.results_ready:
     ),
     clickmode="event+select",
 )
-    _map_event = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", key="viability_map")
 
-    # Handle map click
-    if _map_event and hasattr(_map_event, "selection") and _map_event.selection:
-        _sel_pts = _map_event.selection.get("points", [])
-        if _sel_pts:
-            _clicked_txt = _sel_pts[0].get("text", None)
-            if _clicked_txt and _clicked_txt != st.session_state.get("selected_country"):
-                st.session_state.selected_country = _clicked_txt
-                st.rerun()
+_map_event = st.plotly_chart(
+    fig_map,
+    use_container_width=True,
+    on_select="rerun",
+    key="viability_map",
+)
+
+if _map_event and "selection" in _map_event:
+    _sel_pts = _map_event["selection"].get("points", [])
+    if _sel_pts:
+        _clicked_txt = _sel_pts[0].get("text")
+        if _clicked_txt and _clicked_txt != st.session_state.get("selected_country"):
+            st.session_state.selected_country = _clicked_txt
+            st.rerun()
 
     # Selectbox fallback + clear
     _sa1, _sa2, _sa3 = st.columns([4, 1, 1])
