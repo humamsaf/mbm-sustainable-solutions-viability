@@ -541,6 +541,14 @@ def pl(h=380, ml=20, mr=20, mt=20, mb=30):
         yaxis=dict(gridcolor=GC, linecolor="#e2e8f0", zeroline=False, tickfont=dict(size=9)),
     )
 
+def pl_geo(h=380, ml=0, mr=0, mt=4, mb=0):
+    """Layout dict for Scattergeo maps — no xaxis/yaxis/legend keys to avoid conflicts."""
+    return dict(
+        paper_bgcolor=PBG,
+        font=dict(family="Inter", color=FC, size=10),
+        height=h, margin=dict(l=ml, r=mr, t=mt, b=mb),
+    )
+
 def calc_crf(w, l):
     return 1/l if w == 0 else (w*(1+w)**l)/((1+w)**l - 1)
 
@@ -1503,7 +1511,7 @@ if st.session_state.page == "part1":
                               showocean=True, oceancolor="#e0f2fe",
                               showframe=False, projection_type="equirectangular",
                               lataxis_range=[-60,85])
-            _fig1.update_layout(**pl(380,ml=0,mr=0,mt=4,mb=0),
+            _fig1.update_layout(**pl_geo(380,ml=0,mr=0,mt=4,mb=0),
                                 geo=dict(bgcolor="rgba(0,0,0,0)"),
                                 legend=dict(orientation="h",x=0,y=-0.02,
                                            bgcolor="rgba(255,255,255,0.9)",
@@ -1819,7 +1827,7 @@ elif st.session_state.page == "part2":
                           showocean=True, oceancolor="#e0f2fe",
                           showframe=False, projection_type="equirectangular",
                           lataxis_range=[-60,85])
-        _fig2.update_layout(**pl(420,ml=0,mr=0,mt=4,mb=0),
+        _fig2.update_layout(**pl_geo(420,ml=0,mr=0,mt=4,mb=0),
                             geo=dict(bgcolor="rgba(0,0,0,0)"),
                             legend=dict(orientation="h",x=0,y=-0.02,
                                        bgcolor="rgba(255,255,255,0.9)",
@@ -2092,7 +2100,7 @@ elif st.session_state.page == "part3":
                                 showocean=True, oceancolor="#e0f2fe",
                                 showframe=False, projection_type="equirectangular",
                                 lataxis_range=[-60,85])
-        _fig_vi_map.update_layout(**pl(400,ml=0,mr=0,mt=4,mb=0),
+        _fig_vi_map.update_layout(**pl_geo(400,ml=0,mr=0,mt=4,mb=0),
                                   geo=dict(bgcolor="rgba(0,0,0,0)"),
                                   legend=dict(orientation="h",x=0,y=-0.03,
                                              bgcolor="rgba(255,255,255,0.9)",
