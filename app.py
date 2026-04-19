@@ -143,6 +143,15 @@ TECHNOLOGIES = [
 ]
 N = len(TECHNOLOGIES)
 
+# Early session-state guard for Streamlit reruns
+if "ti" not in st.session_state:
+    st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
+if "tidraft" not in st.session_state:
+    st.session_state.tidraft = {k: list(v) for k, v in DEFAULTS.items()}
+ti = st.session_state.ti
+td = st.session_state.tidraft
+
+
 TECH_CATEGORIES = [
     "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
     "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
@@ -1971,7 +1980,7 @@ elif st.session_state.page == "part3":
           Derived Outputs (at P50)</div>
         """, unsafe_allow_html=True)
         # Compute VI for selected tech using P50 values
-        _r_base = compute(eff_prices, t_r, ti)
+        _r_base = compute(eff_prices, t_r, st.session_state.ti)
         _yx_p50 = _r_base["mb"]   # annual Y+X
         _gp_c   = _gp_likely * _cv_likely  # GP × C_conv denominator per unit
         # Annualised output as capacity proxy
