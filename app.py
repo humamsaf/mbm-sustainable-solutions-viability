@@ -143,15 +143,6 @@ TECHNOLOGIES = [
 ]
 N = len(TECHNOLOGIES)
 
-# Early session-state guard for Streamlit reruns
-if "ti" not in st.session_state:
-    st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
-if "tidraft" not in st.session_state:
-    st.session_state.tidraft = {k: list(v) for k, v in DEFAULTS.items()}
-ti = st.session_state.ti
-td = st.session_state.tidraft
-
-
 TECH_CATEGORIES = [
     "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
     "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
@@ -372,6 +363,14 @@ def make_defaults():
     return d
 
 DEFAULTS = make_defaults()
+
+# Initialize session-state technology inputs only after DEFAULTS exists.
+if "ti" not in st.session_state:
+    st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
+if "tidraft" not in st.session_state:
+    st.session_state.tidraft = {k: list(v) for k, v in DEFAULTS.items()}
+ti = st.session_state.ti
+td = st.session_state.tidraft
 
 # 
 # REAL CARBON PRICES FROM COUNTRY LEVEL DATA (USD/tCO2e)
