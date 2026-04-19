@@ -1225,685 +1225,997 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 
-# SIDEBAR — branding + nav links only
-# 
-with st.sidebar:
-    st.markdown("""
-    <div style="padding:20px 14px 16px;border-bottom:1px solid #f1f5f9;margin-bottom:16px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:40px;height:40px;border-radius:10px;flex-shrink:0;
-                    background:linear-gradient(135deg,#059669,#34d399);
-                    display:flex;align-items:center;justify-content:center;
-                    font-size:0.5rem;font-weight:900;color:#fff;text-align:center;
-                    box-shadow:0 3px 10px rgba(5,150,105,0.28);line-height:1.1;">MIIDDIC</div>
-        <div>
-          <div style="font-size:0.82rem;font-weight:800;color:#064e3b;line-height:1.1;">MIIDDIC</div>
-          <div style="font-size:0.6rem;color:#9ca3af;margin-top:2px;">Viability Engine</div>
-        </div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-    steps = [
-        ("1", "Technology Setup",  True),
-        ("2", "Run Analysis",      st.session_state.results_ready),
-        ("3", "Viability Map",     st.session_state.results_ready),
-        ("4", "Country Detail",    st.session_state.selected_country is not None),
-    ]
-    for _snum, _slabel, _sdone in steps:
-        _sc = "#059669" if _sdone else "#d1d5db"
-        _sbg = "#f0fdf4" if _sdone else "#f9fafb"
-        _stc = "#059669" if _sdone else "#9ca3af"
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:10px;padding:7px 12px;' +
-            f'background:{_sbg};border-radius:8px;margin-bottom:4px;">' +
-            f'<div style="width:20px;height:20px;border-radius:50%;background:{_sc};' +
-            f'display:flex;align-items:center;justify-content:center;' +
-            f'font-size:0.58rem;font-weight:800;color:#fff;flex-shrink:0;">{_snum}</div>' +
-            f'<div style="font-size:0.74rem;font-weight:600;color:{_stc};">{_slabel}</div></div>',
-            unsafe_allow_html=True)
-
-    st.markdown("<hr style='margin:14px 0 10px;border-color:#f1f5f9;'>", unsafe_allow_html=True)
-    if st.button('Reset All', key='sb_reset_all', use_container_width=True):
-        st.session_state.p               = dict(DEFAULT_PRICES)
-        st.session_state.ti              = {k: list(v) for k,v in DEFAULTS.items()}
-        st.session_state.ti_draft        = {k: list(v) for k,v in DEFAULTS.items()}
-        st.session_state.results_ready   = False
-        st.session_state.selected_country = None
-        st.rerun()
-
-# ─────────────────────────────────────────────────────────────────
-# PRE-COMPUTE
-# ─────────────────────────────────────────────────────────────────
-AR  = [compute(st.session_state.p, i, st.session_state.ti) for i in range(N)]
-TR  = sum(r["tr"] for r in AR); TM = sum(r["mb"] for r in AR)
-TC  = sum(r["tc"] for r in AR); TN = sum(r["nc"] for r in AR)
-
-# ══════════════════════════════════════════════════════════════════
-# SINGLE-FLOW PAGE
-# ══════════════════════════════════════════════════════════════════
-
-td_ = st.session_state.ti_draft
-
+# ── Extra CSS helpers for 3-Part layout ──────────────────────────
 st.markdown("""
 <style>
-.run-btn-wrap .stButton>button {
-    background:#059669 !important;
-    color:#fff !important; border:none !important;
-    font-size:1.0rem !important; font-weight:800 !important;
-    padding:14px 0 !important; border-radius:12px !important;
-    box-shadow:0 4px 20px rgba(5,150,105,0.4) !important;
-    width:100% !important;
+/* Page headers */
+.page-header {
+    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+    border: 1px solid #a7f3d0;
+    border-radius: 14px;
+    padding: 22px 26px 18px;
+    margin-bottom: 22px;
 }
-.input-item {
-    background:#ffffff;
-    border:1px solid #e2e8f0; border-radius:10px; padding:10px 14px 8px; margin-bottom:8px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.04);
+.page-header-badge {
+    font-size: 0.65rem; font-weight: 800; color: #059669;
+    text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px;
 }
-.input-lbl {
-    font-size:0.59rem; font-weight:700; color:#6b7280;
-    text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px;
+.page-header-title {
+    font-size: 1.45rem; font-weight: 900; color: #064e3b; line-height: 1.2; margin-bottom: 4px;
 }
-.input-item [data-testid="stNumberInput"] label { display:none !important; }
-.input-item [data-testid="stNumberInput"] input {
-    background:transparent !important; border:none !important;
-    font-size:1.1rem !important; font-weight:700 !important;
-    color:#111827 !important; box-shadow:none !important; }
-.input-item [data-testid="stNumberInput"] > div {
-    background:transparent !important; border:none !important; padding:0 !important; }
-.input-item [data-testid="stNumberInput"] button {
-    background:#f3f4f6 !important; border:1px solid #e5e7eb !important;
-    color:#374151 !important; border-radius:6px !important; font-weight:700 !important; }
+.page-header-sub {
+    font-size: 0.75rem; color: #6b7280; line-height: 1.5;
+}
+
+/* Section headings */
+.sec-head {
+    font-size: 0.75rem; font-weight: 800; color: #111827;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 2px solid #059669; padding-bottom: 5px;
+    margin-bottom: 12px; margin-top: 4px;
+}
+
+/* KPI cards */
+.kpi-card {
+    background: #f8fafc; border: 1px solid #e5e7eb;
+    border-radius: 10px; padding: 12px 14px; text-align: center;
+}
+.kpi-label {
+    font-size: 0.64rem; font-weight: 700; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px;
+}
+.kpi-value {
+    font-size: 1.05rem; font-weight: 900; color: #111827; line-height: 1.1;
+}
+.kpi-m-sub {
+    font-size: 0.65rem; color: #9ca3af; margin-top: 3px;
+}
+
+/* Chips */
+.chip       { display:inline-block; border-radius:999px; padding:2px 9px; font-size:0.65rem; font-weight:700; }
+.chip-d     { background:#dcfce7; color:#065f46; }
+.chip-i     { background:#fef3c7; color:#92400e; }
+.chip-off   { background:#f1f5f9; color:#94a3b8; }
+.chip-yes   { background:#dcfce7; color:#065f46; }
+.chip-no    { background:#fee2e2; color:#991b1b; }
+
+/* Param section header */
 .param-section-hdr {
-    font-size:0.67rem; font-weight:800; color:#374151;
-    text-transform:uppercase; letter-spacing:0.12em; margin-bottom:10px;
-    display:flex; align-items:center; gap:8px;
+    font-size:0.68rem; font-weight:800; color:#374151;
+    text-transform:uppercase; letter-spacing:0.08em;
+    border-bottom:1px solid #e5e7eb; padding-bottom:4px; margin-bottom:8px;
 }
-.param-section-hdr::after { content:""; flex:1; height:1.5px; background:linear-gradient(90deg,#e2e8f0,transparent); }
-.country-panel {
-    background:#ffffff; border:1.5px solid #e2e8f0; border-radius:14px;
-    padding:22px 26px; margin-top:16px;
+
+/* Sidebar nav buttons — hide default Streamlit chrome */
+[data-testid="stButton"] > button[kind="secondary"] {
+    opacity: 0 !important; height: 0 !important; padding: 0 !important;
+    margin: -4px 0 0 0 !important; position: absolute;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Step 1: Setup ────────────────────────────────────────────────
-with st.expander("Step 1 — Technology Setup", expanded=not st.session_state.results_ready):
+# ── Session state init (needed before page logic) ─────────────────
+_N = len(TECHNOLOGIES)
 
-    # How it works
+# ══════════════════════════════════════════════════════════════════
+# PAGE ROUTING & SESSION STATE
+# ══════════════════════════════════════════════════════════════════
+
+# Session state init
+for _k, _v in [
+    ("page", "part1"),
+    ("sel_tech_idx", 0),
+    ("policy_scenario", "current"),
+    ("results_ready", False),
+    ("part2_done", False),
+    ("selected_country", None),
+    ("mc_cache", {}),
+    ("vi_cache", {}),
+    ("ti", {k: list(v) for k, v in DEFAULTS.items()}),
+    ("ti_draft", {k: list(v) for k, v in DEFAULTS.items()}),
+    ("p", dict(DEFAULT_PRICES)),
+    ("gp_min", 0.0), ("gp_likely", 0.15), ("gp_max", 0.50),
+    ("conv_min", 20.0), ("conv_likely", 50.0), ("conv_max", 120.0),
+]:
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+N = len(TECHNOLOGIES)
+
+# ── Sidebar ───────────────────────────────────────────────────────
+with st.sidebar:
     st.markdown("""
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;
-                padding:18px 22px;margin-bottom:20px;">
-      <div style="font-size:0.68rem;font-weight:800;color:#059669;text-transform:uppercase;
-                  letter-spacing:0.1em;margin-bottom:12px;">How the Engine Works</div>
-      <div style="display:flex;gap:20px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:180px;">
-          <div style="font-size:0.75rem;font-weight:700;color:#1f2937;margin-bottom:4px;">1. Configure Technology</div>
-          <div style="font-size:0.72rem;color:#6b7280;line-height:1.55;">
-            Input installed capacity, CAPEX, OPEX, project lifetime, CO&#8322; abatement factor, and WACC.
-            These represent the parameters within the investor's control. Direct product revenue is excluded —
-            the engine assesses viability exclusively through Market-Based Mechanism (MBM) policy revenue.
-          </div>
-        </div>
-        <div style="flex:1;min-width:180px;">
-          <div style="font-size:0.75rem;font-weight:700;color:#1f2937;margin-bottom:4px;">2. MBM Price Calibration</div>
-          <div style="font-size:0.72rem;color:#6b7280;line-height:1.55;">
-            MBM prices across 11 mechanisms (ETS, Carbon Tax, CBAM, CORSIA, IMO Levy, VCM/CDM,
-            CfD, CCfD, AMC, Feebate, Fuel Mandate) are derived from calibrated carbon market data.
-            Country-specific prices and policy applicability are drawn from a 194-country database.
-          </div>
-        </div>
-        <div style="flex:1;min-width:180px;">
-          <div style="font-size:0.75rem;font-weight:700;color:#1f2937;margin-bottom:4px;">3. Viability Assessment</div>
-          <div style="font-size:0.72rem;color:#6b7280;line-height:1.55;">
-            MBM-only NPV is computed across all 194 countries for the selected technology.
-            Results are displayed on a choropleth world map coloured by the chosen viability metric.
-            Selecting a country reveals a full mechanism-level breakdown, cost waterfall, and multi-year NPV projection.
-          </div>
-        </div>
-      </div>
+    <div style="padding:18px 16px 10px;border-bottom:1px solid #e5e7eb;margin-bottom:8px;">
+      <div style="font-size:0.62rem;font-weight:800;color:#9ca3af;text-transform:uppercase;
+                  letter-spacing:0.15em;margin-bottom:4px;">MIDDIC</div>
+      <div style="font-size:1.05rem;font-weight:800;color:#111827;line-height:1.2;">
+        Viability Engine</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Technology selector
-    st.markdown('<div class="sec-head">Technology Parameters</div>', unsafe_allow_html=True)
-    tp_c1, tp_c2 = st.columns([1, 2])
-    with tp_c1:
-        cat_sp = st.selectbox("Category", ["All"]+list(dict.fromkeys(TECH_CATEGORIES)), key="sp_cat")
-        avail_sp = list(range(N)) if cat_sp=="All" else [i for i,c in enumerate(TECH_CATEGORIES) if c==cat_sp]
-        sel_sp   = st.selectbox("Technology", [TECHNOLOGIES[i] for i in avail_sp], key="sp_tech")
-        t_sp     = TECHNOLOGIES.index(sel_sp)
-        cat_sp_  = TECH_CATEGORIES[t_sp]
-        cs_, _   = CAT_STYLE.get(cat_sp_, ("cat-energy",""))
-        st.markdown(f'<span class="cat-badge {cs_}">{cat_sp_}</span>', unsafe_allow_html=True)
-        chips_html = ""
-        for mi, mk in enumerate(["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]):
-            val_ = MBM_MATRIX[t_sp][mi]
-            if val_ == "D":
-                chips_html += f'<span class="chip chip-d" style="font-size:0.57rem;padding:2px 7px;">D: {MBM_LABELS[mk][0]}</span>'
-            elif val_ == "I":
-                chips_html += f'<span class="chip chip-i" style="font-size:0.57rem;padding:2px 7px;">I: {MBM_LABELS[mk][0]}</span>'
-        st.markdown(chips_html or '<span style="font-size:0.72rem;color:#9ca3af;">No active MBM mechanisms</span>', unsafe_allow_html=True)
+    _parts = [
+        ("part1", "A", "Overview", "System mapping & MBM coverage"),
+        ("part2", "B", "Revenue Estimation", "Lifetime Y+X via Monte Carlo"),
+        ("part3", "C", "Viability Analytics", "VI = (Y+X)/(GP × C_conv)"),
+    ]
+    for _pid, _badge, _title, _sub in _parts:
+        _active = st.session_state.page == _pid
+        _bg = "#f0fdf4" if _active else "transparent"
+        _bc = "#059669" if _active else "transparent"
+        _tc = "#065f46" if _active else "#374151"
+        st.markdown(f"""
+        <div style="background:{_bg};border:1.5px solid {_bc};border-radius:10px;
+                    padding:10px 12px;margin-bottom:6px;cursor:pointer;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:22px;height:22px;border-radius:50%;background:{'#059669' if _active else '#e5e7eb'};
+                        display:flex;align-items:center;justify-content:center;
+                        font-size:0.62rem;font-weight:800;color:{'white' if _active else '#6b7280'};">{_badge}</div>
+            <div>
+              <div style="font-size:0.78rem;font-weight:700;color:{_tc};">{_title}</div>
+              <div style="font-size:0.65rem;color:#9ca3af;">{_sub}</div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button(f"Go to {_title}", key=f"nav_{_pid}", use_container_width=True):
+            st.session_state.page = _pid
+            st.rerun()
 
-    with tp_c2:
-        ti_c1, ti_c2, ti_c3 = st.columns(3)
-        def tni(label, key, **kw):
-            st.markdown(f'<div class="input-item"><div class="input-lbl">{label}</div>', unsafe_allow_html=True)
-            val = st.number_input("_", label_visibility="collapsed", key=key, **kw)
-            st.markdown('</div>', unsafe_allow_html=True)
-            return val
-        with ti_c1:
-            st.markdown('<div class="param-section-hdr">Scale and Output</div>', unsafe_allow_html=True)
-            td_["annual_output"][t_sp]      = tni("Annual Output  (units/yr)",   f"sp_ao{t_sp}", min_value=0, max_value=50_000_000, value=int(td_["annual_output"][t_sp]), step=10000)
-            td_["installed_capacity"][t_sp] = tni("Installed Capacity  (MW)",    f"sp_ic{t_sp}", min_value=0, max_value=10000, value=int(td_["installed_capacity"][t_sp]), step=10)
-            td_["capacity_factor"][t_sp]    = tni("Capacity Factor  (0-1)",      f"sp_cf{t_sp}", min_value=0.0, max_value=1.0, value=float(td_["capacity_factor"][t_sp]), step=0.01, format="%.2f")
-            td_["project_lifetime"][t_sp]   = tni("Project Lifetime  (years)",   f"sp_pl{t_sp}", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1)
-        with ti_c2:
-            st.markdown('<div class="param-section-hdr">Cost Structure</div>', unsafe_allow_html=True)
-            td_["capex_per_kw"][t_sp]   = tni("CAPEX  (USD/kW)",         f"sp_ck{t_sp}", min_value=0, max_value=30000, value=int(td_["capex_per_kw"][t_sp]), step=100)
-            td_["opex_pct"][t_sp]       = tni("OPEX  (% of CAPEX/yr)",  f"sp_op{t_sp}", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f")
-            td_["feedstock_cost"][t_sp] = tni("Feedstock Cost  (USD/yr)", f"sp_fc{t_sp}", min_value=0, max_value=50_000_000, value=int(td_["feedstock_cost"][t_sp]), step=100000)
-            td_["other_opex"][t_sp]     = tni("Other OPEX  (USD/yr)",    f"sp_ov{t_sp}", min_value=0, max_value=20_000_000, value=int(td_["other_opex"][t_sp]), step=100000)
-            td_["wacc"][t_sp]           = tni("WACC  (decimal)",          f"sp_wc{t_sp}", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f")
-        with ti_c3:
-            st.markdown('<div class="param-section-hdr">Abatement Profile</div>', unsafe_allow_html=True)
-            td_["co2_abated_factor"][t_sp] = tni("CO2 Abated  (tCO2/unit)", f"sp_ca{t_sp}", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f")
-
-    st.session_state.ti_draft = td_
-
-# ─── Run Button ───────────────────────────────────────────────────
-st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-_rc1, _rc2, _rc3 = st.columns([1, 2, 1])
-with _rc2:
-    st.markdown('<div class="run-btn-wrap">', unsafe_allow_html=True)
-    if st.button("Run Analysis", key="run_analysis", use_container_width=True, type="primary"):
-        st.session_state.ti              = {k: list(v) for k,v in td_.items()}
-        st.session_state.results_ready   = True
-        st.session_state.selected_country = None
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    # Reset
+    if st.button("Reset All", key="reset_all"):
+        for _k in ["results_ready","part2_done","selected_country","mc_cache","vi_cache"]:
+            st.session_state[_k] = {} if "cache" in _k else (False if "ready" in _k or "done" in _k else None)
+        st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
+        st.session_state.ti_draft = {k: list(v) for k, v in DEFAULTS.items()}
+        st.session_state.p = dict(DEFAULT_PRICES)
         st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── Results ──────────────────────────────────────────────────────
-if st.session_state.results_ready:
-    ti       = st.session_state.ti
-    t_r      = t_sp
-    tech_name = sel_sp
-    AR_r = [compute(st.session_state.p, i, ti) for i in range(N)]
-    r_r  = AR_r[t_r]
+# ══════════════════════════════════════════════════════════════════
+# SHARED STATE
+# ══════════════════════════════════════════════════════════════════
+sel_tech_idx = st.session_state.sel_tech_idx
+sel_tech     = TECHNOLOGIES[sel_tech_idx]
+pol_sc       = st.session_state.policy_scenario
+ti           = st.session_state.ti
 
-    # ── Map + Country Detail ─────────────────────────────────────────
-    st.markdown("""
-    <style>
-    .cd-panel {
-        background:#ffffff; border:1px solid #e5e7eb; border-radius:16px;
-        overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.07); margin-top:20px;
-    }
-    .cd-header {
-        background:#f8fafc; border-bottom:1px solid #e5e7eb;
-        padding:16px 22px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;
-    }
-    .cd-country-name { font-size:1.05rem; font-weight:800; color:#111827; }
-    .cd-region { font-size:0.72rem; color:#9ca3af; font-weight:500; }
-    .cd-tag {
-        background:#ffffff; border:1px solid #e2e8f0; border-radius:6px;
-        padding:3px 10px; font-size:0.67rem; color:#374151; font-weight:500;
-        display:inline-block; margin:2px;
-    }
-    .cd-tag-green { border-color:#a7f3d0; color:#065f46; background:#f0fdf4; }
-    .cd-tag-red   { border-color:#fca5a5; color:#991b1b; background:#fff1f2; }
-    .cd-body { padding:18px 22px; }
-    .kpi-row { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:18px; }
-    .kpi-m { background:#f8fafc; border:1px solid #f1f5f9; border-radius:12px; padding:13px 15px; }
-    .kpi-m-lbl { font-size:0.58rem; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:0.09em; margin-bottom:3px; }
-    .kpi-m-val { font-size:1.2rem; font-weight:800; color:#111827; font-variant-numeric:tabular-nums; }
-    .kpi-m-sub { font-size:0.67rem; color:#059669; font-weight:500; margin-top:3px; }
-    .kpi-m-sub-r { font-size:0.67rem; color:#dc2626; font-weight:500; margin-top:3px; }
-    .sumbar { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
-    .sumcard { border-radius:12px; padding:14px 18px; border:1px solid #e5e7eb; background:#fff; }
-    .sumcard-g { background:#f0fdf4; border-color:#a7f3d0; }
-    .sumcard-lbl { font-size:0.58rem; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:0.09em; margin-bottom:4px; }
-    .sumcard-val { font-size:1.4rem; font-weight:800; color:#111827; }
-    .sumcard-val-g { color:#059669; }
-    .sumcard-sub { font-size:0.67rem; color:#6b7280; margin-top:2px; }
-    </style>
-    """, unsafe_allow_html=True)
+# Policy scenario multipliers for MBM prices
+SCENARIO_MULT = {
+    "current":  {"ets":1.0,"ctax":1.0,"fuel":1.0,"cfd":1.0,"ccfd":1.0,"cbam":1.0,
+                 "corsia":1.0,"imo":1.0,"vcm":1.0,"amc":1.0,"feebate":1.0},
+    "net_zero": {"ets":1.6,"ctax":1.5,"fuel":1.3,"cfd":1.2,"ccfd":1.4,"cbam":1.3,
+                 "corsia":1.5,"imo":1.4,"vcm":1.3,"amc":1.2,"feebate":1.2},
+    "worst":    {"ets":0.4,"ctax":0.3,"fuel":0.7,"cfd":0.6,"ccfd":0.4,"cbam":0.5,
+                 "corsia":0.5,"imo":0.6,"vcm":0.3,"amc":0.5,"feebate":0.4},
+}
+def get_scenario_prices(base_prices, scenario):
+    mult = SCENARIO_MULT.get(scenario, SCENARIO_MULT["current"])
+    return {k: v * mult.get(k, 1.0) for k, v in base_prices.items()}
 
-    # Filters
-    _fc1, _fc2 = st.columns([2, 2])
-    with _fc1:
-        ALL_REGIONS_MAP = sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values()))
-        region_filter = st.selectbox("Region", ["All Regions"] + ALL_REGIONS_MAP, key="map_region")
-        show_regions  = ALL_REGIONS_MAP if region_filter=="All Regions" else [region_filter]
-    with _fc2:
-        map_metric = st.selectbox("Colour by", ["NPV ($M)", "MBM Rev ($M)", "R/C Ratio"], key="map_metric")
-    use_real_cp = True
+eff_prices = get_scenario_prices(st.session_state.p, pol_sc)
 
-    sv_rows = []
-    for _country, _cdata in COUNTRY_DATA_RAW.items():
-        if _cdata["region"] not in show_regions: continue
-        if use_real_cp and _country in COUNTRY_CARBON_PRICES:
-            _cp_ov = dict(st.session_state.p)
-            _rp    = COUNTRY_CARBON_PRICES[_country]
-            _tm    = _cdata.get("techs", {}).get(tech_name, {})
-            if "ETS" in _tm:            _cp_ov["ets"]  = _rp
-            elif "Carbon Tax" in _tm:   _cp_ov["ctax"] = _rp
-            _r_sv = compute_country_excel(_country, _cp_ov, t_r, ti)
-        else:
-            _r_sv = compute_country_excel(_country, st.session_state.p, t_r, ti)
+# ══════════════════════════════════════════════════════════════════
+# PART 1 — OVERVIEW
+# ══════════════════════════════════════════════════════════════════
+if st.session_state.page == "part1":
 
-        _lt = ti["project_lifetime"][t_r]
-        _cap= ti["installed_capacity"][t_r]*1000*ti["capex_per_kw"][t_r]
-        _w  = ti["wacc"][t_r]
-        _npv= -_cap + sum((_r_sv["mb"]*(1.05**(y-1))-(_r_sv["tc"]-_r_sv["ac"]))/(1+_w)**y for y in range(1,_lt+1))
-        _iso= _cdata.get("iso3","")
-        _ep = get_country_energy_prices(_iso)
-        _rcp= COUNTRY_CARBON_PRICES.get(_country) if use_real_cp else None
-        _rc = _r_sv["mb"]/_r_sv["tc"] if _r_sv["tc"]>0 else 0
-        _vl = "Viable" if _npv>=0 else "Not Viable"
-        _cpstr = f"{_rcp} USD/tCO2e" if _rcp else "No data"
-        _elstr = f"{_ep['eb']:.3f} USD/kWh" if _ep and _ep.get("eb") else "No data"
-        _mechs = ", ".join(_cdata["techs"].get(tech_name, {}).keys()) or "None"
-        _coords = COUNTRY_COORDS.get(_country, None)
-        _lat = _coords[0] if _coords else None
-        _lon = _coords[1] if _coords else None
-        sv_rows.append({
-            "Country": _country, "ISO3": _iso, "Region": _cdata["region"],
-            "Active MBMs": _mechs, "MBM Rev ($M)": round(_r_sv["mb"]/1e6,2),
-            "Total Cost ($M)": round(_r_sv["tc"]/1e6,2), "R/C Ratio": round(_rc,2),
-            "NPV ($M)": round(_npv/1e6,1), "Viable?": "Yes" if _npv>=0 else "No",
-            "_metric": {"NPV ($M)": _npv/1e6, "MBM Rev ($M)": _r_sv["mb"]/1e6, "R/C Ratio": _rc}.get(map_metric, _npv/1e6),
-            "_lat": _lat, "_lon": _lon,
-            "_npv": round(_npv/1e6,1), "_rc": round(_rc,2),
-            "_mb": round(_r_sv["mb"]/1e6,2), "_tc": round(_r_sv["tc"]/1e6,2),
-            "_mechs": _mechs, "_cpstr": _cpstr,
-        })
-
-    df_sv = pd.DataFrame(sv_rows).sort_values("NPV ($M)", ascending=False).reset_index(drop=True)
-    _vc_n = (df_sv["Viable?"]=="Yes").sum(); _tc_n = len(df_sv)
-    _best = df_sv.iloc[0] if _tc_n > 0 else None
-
-    # Summary bar
+    # Header
     st.markdown(f"""
-    <div class="sumbar">
-      <div class="sumcard sumcard-g">
-        <div class="sumcard-lbl">Viable Markets</div>
-        <div class="sumcard-val sumcard-val-g">{_vc_n}<span style="font-size:.8rem;color:#9ca3af;font-weight:400;"> / {_tc_n}</span></div>
-        <div class="sumcard-sub">NPV &ge; 0</div>
-      </div>
-      <div class="sumcard">
-        <div class="sumcard-lbl">Highest NPV</div>
-        <div class="sumcard-val" style="font-size:1.05rem;">{_best["Country"] if _best is not None else "—"}</div>
-        <div class="sumcard-sub">${_best["NPV ($M)"]:.1f}M</div>
-      </div>
-      <div class="sumcard">
-        <div class="sumcard-lbl">Average NPV</div>
-        <div class="sumcard-val">${df_sv["NPV ($M)"].mean():.1f}M</div>
-        <div class="sumcard-sub">All countries</div>
-      </div>
-      <div class="sumcard">
-        <div class="sumcard-lbl">Viability Rate</div>
-        <div class="sumcard-val">{_vc_n/_tc_n*100:.0f}%</div>
-        <div class="sumcard-sub">Countries passing threshold</div>
-      </div>
+    <div class="page-header">
+      <div class="page-header-badge">Part A  &middot;  Overview</div>
+      <div class="page-header-title">MIDDIC Viability Engine</div>
+      <div class="page-header-sub">Explore sustainable innovations, the market-based mechanisms that affect them, and their geographic distribution</div>
     </div>
     """, unsafe_allow_html=True)
-# Scatter pin map
-df_pins = df_sv[df_sv["_lat"].notna()].copy()
 
-# Ukuran bubble berdasarkan besar hasil
-# Opsi utama: pakai abs(NPV) supaya nilai negatif besar tetap terlihat besar
-df_pins["_size_metric"] = df_pins["_npv"].abs().clip(lower=1)
+    # Top stats
+    _total_interventions = sum(
+        len(cd["techs"].get(t, {}))
+        for cd in COUNTRY_DATA_RAW.values()
+        for t in TECHNOLOGIES
+    )
+    _n_countries = len(COUNTRY_DATA_RAW)
+    _n_mechs = 11
+    _n_tech = len(TECHNOLOGIES)
+    st.markdown(f"""
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px;">
+      {''.join([
+        f'<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;text-align:center;">'
+        f'<div style="font-size:1.4rem;font-weight:800;color:#111827;">{v}</div>'
+        f'<div style="font-size:0.67rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-top:3px;">{lbl}</div>'
+        f'</div>'
+        for v, lbl in [(_n_tech,"Technologies"), (_total_interventions,"Total Interventions"),
+                       (_n_countries,"Countries Covered"), (_n_mechs,"Mechanism Types"), ("5","Mechanism Categories")]
+      ])}
+    </div>
+    """, unsafe_allow_html=True)
 
-# Kompres distribusi agar bubble tidak terlalu jomplang
-df_pins["_size_plot"] = np.sqrt(df_pins["_size_metric"])
+    # Tabs
+    _tab_ov, _tab_mech, _tab_countries, _tab_scenarios = st.tabs(["Overview", "Mechanisms", "Countries", "Scenarios"])
 
-_viable_df = df_pins[df_pins["Viable?"] == "Yes"].copy()
-_nonviable_df = df_pins[df_pins["Viable?"] == "No"].copy()
+    with _tab_ov:
+        _col_left, _col_right = st.columns([1.6, 1])
+        with _col_left:
+            st.markdown('<div class="sec-head">Global Coverage Map</div>', unsafe_allow_html=True)
 
-# sizeref global agar kedua trace memakai skala ukuran yang sama
-_desired_max_px = 22
-_size_ref = 2.0 * df_pins["_size_plot"].max() / (_desired_max_px ** 2) if len(df_pins) else 1
+            # Tech selector
+            _cat_filter = st.selectbox("Select Technology", TECHNOLOGIES,
+                                       index=sel_tech_idx, key="p1_tech_sel")
+            _new_idx = TECHNOLOGIES.index(_cat_filter)
+            if _new_idx != st.session_state.sel_tech_idx:
+                st.session_state.sel_tech_idx = _new_idx
+                st.rerun()
 
-fig_map = go.Figure()
+            # Mechanism scenario selector
+            _sc_opts = {"current": "1  Current Mechanisms", "net_zero": "2  Net-Zero Aligned", "worst": "3  Worst Case"}
+            _sc_sel = st.selectbox("Policy Scenario", list(_sc_opts.values()),
+                                   index=list(_sc_opts.keys()).index(pol_sc), key="p1_sc")
+            _new_sc = [k for k,v in _sc_opts.items() if v == _sc_sel][0]
+            if _new_sc != pol_sc:
+                st.session_state.policy_scenario = _new_sc
+                st.rerun()
 
-fig_map.add_trace(go.Scattergeo(
-    lat=_nonviable_df["_lat"],
-    lon=_nonviable_df["_lon"],
-    text=_nonviable_df["Country"],
-    customdata=_nonviable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
-    hovertemplate=(
-        "<b>%{customdata[0]}</b> Not Viable<br>"
-        "NPV: <b>$%{customdata[1]:.1f}M</b> | R/C: <b>%{customdata[2]:.2f}x</b><br>"
-        "MBM: $%{customdata[3]:.2f}M Cost: $%{customdata[4]:.2f}M<br>"
-        "MBMs: %{customdata[5]}<br>"
-        "Carbon: %{customdata[6]}<br>"
-        "<i>Click to open details</i><extra></extra>"
-    ),
-    mode="markers",
-    marker=dict(
-        size=_nonviable_df["_size_plot"],
-        sizemode="area",
-        sizeref=_size_ref,
-        sizemin=5,
-        color="#dc2626",
-        opacity=0.82,
-        line=dict(width=0.8, color="#ffffff"),
-        symbol="circle",
-    ),
-    name="Not Viable",
-))
+            # Build mechanism count per country for selected tech
+            _map_rows = []
+            for _c, _cd in COUNTRY_DATA_RAW.items():
+                _tm = _cd["techs"].get(sel_tech, {})
+                _n_m = len(_tm)
+                _coords = COUNTRY_COORDS.get(_c)
+                if not _coords: continue
+                # Apply scenario weighting to mechanism count
+                _sc_mult = {"current":1.0,"net_zero":1.3,"worst":0.6}.get(pol_sc, 1.0)
+                _effective_mechs = min(11, round(_n_m * _sc_mult)) if pol_sc != "current" else _n_m
+                _color = "#065f46" if _effective_mechs >= 5 else \
+                         "#059669" if _effective_mechs >= 3 else \
+                         "#6ee7b7" if _effective_mechs >= 1 else "#e5e7eb"
+                _map_rows.append({
+                    "Country": _c, "lat": _coords[0], "lon": _coords[1],
+                    "Mechanisms": _effective_mechs, "_color": _color,
+                    "ISO3": _cd.get("iso3",""), "Region": _cd.get("region",""),
+                })
 
-fig_map.add_trace(go.Scattergeo(
-    lat=_viable_df["_lat"],
-    lon=_viable_df["_lon"],
-    text=_viable_df["Country"],
-    customdata=_viable_df[["Country","_npv","_rc","_mb","_tc","_mechs","_cpstr"]].values,
-    hovertemplate=(
-        "<b>%{customdata[0]}</b> Viable<br>"
-        "NPV: <b>$%{customdata[1]:.1f}M</b> | R/C: <b>%{customdata[2]:.2f}x</b><br>"
-        "MBM: $%{customdata[3]:.2f}M Cost: $%{customdata[4]:.2f}M<br>"
-        "MBMs: %{customdata[5]}<br>"
-        "Carbon: %{customdata[6]}<br>"
-        "<i>Click to open details</i><extra></extra>"
-    ),
-    mode="markers",
-    marker=dict(
-        size=_viable_df["_size_plot"],
-        sizemode="area",
-        sizeref=_size_ref,
-        sizemin=5,
-        color="#059669",
-        opacity=0.9,
-        line=dict(width=0.8, color="#ffffff"),
-        symbol="circle",
-    ),
-    name="Viable",
-))
+            _df_map1 = pd.DataFrame(_map_rows)
+            _viable_df = _df_map1[_df_map1["Mechanisms"] >= 5]
+            _med_df    = _df_map1[(_df_map1["Mechanisms"] >= 3) & (_df_map1["Mechanisms"] < 5)]
+            _low_df    = _df_map1[(_df_map1["Mechanisms"] >= 1) & (_df_map1["Mechanisms"] < 3)]
+            _none_df   = _df_map1[_df_map1["Mechanisms"] == 0]
 
-fig_map.update_geos(
-    showcountries=True,
-    countrycolor="#d1d5db",
-    showcoastlines=True,
-    coastlinecolor="#e2e8f0",
-    showland=True,
-    landcolor="#f9fafb",
-    showocean=True,
-    oceancolor="#e0f2fe",
-    showframe=False,
-    projection_type="equirectangular",
-    lataxis_range=[-60, 85],
-    bgcolor="rgba(0,0,0,0)",
-)
+            _fig1 = go.Figure()
+            for _df_g, _name, _col, _sz in [
+                (_viable_df, "5+ Mechanisms", "#065f46", 9),
+                (_med_df,    "3–4 Mechanisms","#059669", 7),
+                (_low_df,    "1–2 Mechanisms","#6ee7b7", 6),
+                (_none_df,   "No Mechanisms", "#d1d5db", 4),
+            ]:
+                if len(_df_g):
+                    _fig1.add_trace(go.Scattergeo(
+                        lat=_df_g["lat"], lon=_df_g["lon"],
+                        text=_df_g["Country"],
+                        hovertemplate="<b>%{text}</b><br>Mechanisms: %{customdata}<extra></extra>",
+                        customdata=_df_g["Mechanisms"],
+                        mode="markers",
+                        marker=dict(size=_sz, color=_col, opacity=0.85,
+                                    line=dict(width=0.5, color="#ffffff")),
+                        name=_name,
+                    ))
+            _fig1.update_geos(showcountries=True, countrycolor="#d1d5db",
+                              showland=True, landcolor="#f9fafb",
+                              showocean=True, oceancolor="#e0f2fe",
+                              showframe=False, projection_type="equirectangular",
+                              lataxis_range=[-60,85])
+            _fig1.update_layout(**pl(380,ml=0,mr=0,mt=4,mb=0),
+                                geo=dict(bgcolor="rgba(0,0,0,0)"),
+                                legend=dict(orientation="h",x=0,y=-0.02,
+                                           bgcolor="rgba(255,255,255,0.9)",
+                                           bordercolor="#e2e8f0",borderwidth=1,
+                                           font=dict(size=9)))
+            st.plotly_chart(_fig1, use_container_width=True)
 
-fig_map.update_layout(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Inter", color="#374151", size=10),
-    height=440,
-    margin=dict(l=0, r=0, t=8, b=0),
-    legend=dict(
-        orientation="h",
-        x=0.01,
-        y=0.01,
-        bgcolor="rgba(255,255,255,0.92)",
-        bordercolor="#e2e8f0",
-        borderwidth=1,
-        font=dict(size=10),
-        itemsizing="constant",
-    ),
-    clickmode="event+select",
-)
+            # Top 10 countries by mechanism count
+            st.markdown('<div class="sec-head">Top Countries by Mechanism Count</div>', unsafe_allow_html=True)
+            _top10 = _df_map1.nlargest(10, "Mechanisms")[["Country","ISO3","Region","Mechanisms"]]
+            st.dataframe(_top10.reset_index(drop=True), use_container_width=True, height=240)
 
-_map_event = st.plotly_chart(
-    fig_map,
-    use_container_width=True,
-    on_select="rerun",
-    key="viability_map",
-)
+        with _col_right:
+            st.markdown('<div class="sec-head">Selected Technology</div>', unsafe_allow_html=True)
+            _cat_idx = TECHNOLOGIES.index(sel_tech)
+            _cat_name = TECH_CATEGORIES[_cat_idx] if _cat_idx < len(TECH_CATEGORIES) else "General"
+            st.markdown(f"""
+            <div style="background:#f0fdf4;border:1px solid #a7f3d0;border-radius:12px;padding:16px 18px;margin-bottom:16px;">
+              <div style="font-size:0.72rem;font-weight:600;color:#059669;margin-bottom:4px;">{_cat_name}</div>
+              <div style="font-size:1.0rem;font-weight:800;color:#064e3b;">{sel_tech}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-if _map_event and "selection" in _map_event:
-    _sel_pts = _map_event["selection"].get("points", [])
-    if _sel_pts:
-        _clicked_txt = _sel_pts[0].get("text")
-        if _clicked_txt and _clicked_txt != st.session_state.get("selected_country"):
-            st.session_state.selected_country = _clicked_txt
-            st.rerun()
+            st.markdown('<div class="sec-head">Affecting Mechanisms</div>', unsafe_allow_html=True)
+            _mech_row = MBM_MATRIX[sel_tech_idx]
+            _mech_names = list(MBM_LABELS.keys())
+            for _mi, (_mk, _ml) in enumerate(MBM_LABELS.items()):
+                _mval = _mech_row[_mi]
+                if _mval is not None:
+                    _is_direct = _mval == "D"
+                    _badge_cls = "chip-d" if _is_direct else "chip-i"
+                    _badge_txt = "Direct" if _is_direct else "Indirect"
+                    # Count countries
+                    _n_c = sum(1 for _cd in COUNTRY_DATA_RAW.values()
+                               if _mk in _cd["techs"].get(sel_tech, {}))
+                    st.markdown(f"""
+                    <div style="display:flex;justify-content:space-between;align-items:center;
+                                padding:7px 0;border-bottom:1px solid #f1f5f9;">
+                      <div style="font-size:0.75rem;font-weight:600;color:#111827;">{_ml[0] if isinstance(_ml,tuple) else _mk}</div>
+                      <div style="display:flex;gap:6px;align-items:center;">
+                        <span class="chip {_badge_cls}" style="font-size:0.62rem;">{_badge_txt}</span>
+                        <span style="font-size:0.68rem;color:#6b7280;">{_n_c} countries</span>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-    # Selectbox fallback + clear
-    _sa1, _sa2, _sa3 = st.columns([4, 1, 1])
-    with _sa1:
-        _all_c = sorted(df_sv["Country"].tolist())
-        _def_i = 0
-        if st.session_state.selected_country and st.session_state.selected_country in _all_c:
-            _def_i = _all_c.index(st.session_state.selected_country)
-        _clicked_country = st.selectbox("Or select a country", _all_c, index=_def_i, key="map_country_sel")
-    with _sa2:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("View Details", key="btn_view_country", use_container_width=True, type="primary"):
-            st.session_state.selected_country = _clicked_country
-            st.rerun()
-    with _sa3:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("Clear", key="btn_clear_country", use_container_width=True):
-            st.session_state.selected_country = None
-            st.rerun()
+    with _tab_mech:
+        st.markdown('<div class="sec-head">Mechanism Scenarios</div>', unsafe_allow_html=True)
+        _sc1, _sc2, _sc3 = st.columns(3)
+        for _col_sc, _sc_k, _sc_n, _sc_desc, _sc_imp, _sc_color in [
+            (_sc1, "current", "1 Current Mechanisms", "Based on mechanisms currently implemented worldwide.", "Moderate", "#f59e0b"),
+            (_sc2, "net_zero", "2 Net-Zero Aligned", "Assumes strengthened and expanded mechanisms aligned with 1.5°C pathways.", "High", "#059669"),
+            (_sc3, "worst", "3 Worst Case", "Assumes weak policy, low carbon pricing and limited mechanism expansion.", "Low", "#dc2626"),
+        ]:
+            _active_sc = st.session_state.policy_scenario == _sc_k
+            _bord = "#059669" if _active_sc else "#e5e7eb"
+            _col_sc.markdown(f"""
+            <div style="border:2px solid {_bord};border-radius:12px;padding:16px;background:{'#f0fdf4' if _active_sc else '#ffffff'};">
+              <div style="font-size:0.78rem;font-weight:800;color:#111827;margin-bottom:6px;">{_sc_n}</div>
+              <div style="font-size:0.72rem;color:#6b7280;margin-bottom:10px;">{_sc_desc}</div>
+              <div style="font-size:0.68rem;font-weight:700;color:{_sc_color};">Impact on Viability Index: {_sc_imp}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if _col_sc.button(f"Select Scenario", key=f"sc_btn_{_sc_k}"):
+                st.session_state.policy_scenario = _sc_k
+                st.rerun()
 
-    # Country Detail Panel
-    if st.session_state.selected_country:
-        _sel_c = st.session_state.selected_country
-        _cdata_cl = COUNTRY_DATA_RAW.get(_sel_c, {})
-        _iso3_cl  = _cdata_cl.get("iso3","")
-        _ep_cl    = get_country_energy_prices(_iso3_cl)
-        _rcp_cl   = COUNTRY_CARBON_PRICES.get(_sel_c) if use_real_cp else None
-        _elstr_cl = f"{_ep_cl['eb']:.3f} USD/kWh" if _ep_cl and _ep_cl.get("eb") else "—"
-        _dstr_cl  = f"{_ep_cl['d']:.3f} USD/L" if _ep_cl and _ep_cl.get("d") else "—"
-        _cpstr_cl = f"{_rcp_cl} USD/tCO\u2082e" if _rcp_cl else "—"
+        st.markdown('<div class="sec-head" style="margin-top:20px;">Mechanism Category Breakdown</div>', unsafe_allow_html=True)
+        _mech_cats = {
+            "Carbon Pricing (ETS, Tax, CBAM)": ["ETS", "Carbon Tax", "CBAM"],
+            "Regulatory Mandates": ["Fuel Mandate", "CORSIA", "IMO Levy"],
+            "Market Mechanisms (CfD, CCfD, VCM)": ["CfD", "CCfD", "VCM/CDM"],
+            "Incentives & Support (Subsidies, AMC)": ["AMC"],
+            "Others (Feebate, IMO Levy)": ["Feebate"],
+        }
+        _tech_mechs = MBM_MATRIX[sel_tech_idx]
+        _mech_key_list = list(MBM_LABELS.keys())
+        for _cat_name_m, _mechs_in_cat in _mech_cats.items():
+            _active_in_cat = [m for m in _mechs_in_cat
+                               if any(m.lower() in mk.lower() for mk in _mech_key_list
+                                      if _tech_mechs[_mech_key_list.index(mk)] is not None)]
+            _has = len(_active_in_cat) > 0
+            st.markdown(f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        padding:10px 14px;margin-bottom:6px;border-radius:8px;
+                        background:{'#f0fdf4' if _has else '#f9fafb'};border:1px solid {'#a7f3d0' if _has else '#f1f5f9'};">
+              <div style="font-size:0.75rem;font-weight:700;color:{'#065f46' if _has else '#9ca3af'};">{_cat_name_m}</div>
+              <span class="chip {'chip-d' if _has else 'chip-off'}">{'Active' if _has else 'Not Active'}</span>
+            </div>
+            """, unsafe_allow_html=True)
 
-        if _rcp_cl:
-            _cp_cl = dict(st.session_state.p)
-            _tm_cl = _cdata_cl.get("techs",{}).get(tech_name,{})
-            if "ETS" in _tm_cl:            _cp_cl["ets"]  = _rcp_cl
-            elif "Carbon Tax" in _tm_cl:   _cp_cl["ctax"] = _rcp_cl
+    with _tab_countries:
+        _tc1, _tc2 = st.columns([1,1])
+        with _tc1:
+            _reg_f = st.selectbox("Region", ["All"] + sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values())), key="p1_reg")
+        with _tc2:
+            _sort_f = st.selectbox("Sort by", ["Most Mechanisms", "Country Name"], key="p1_sort")
+
+        _country_rows = []
+        for _c, _cd in COUNTRY_DATA_RAW.items():
+            if _reg_f != "All" and _cd["region"] != _reg_f: continue
+            _tm = _cd["techs"].get(sel_tech, {})
+            _country_rows.append({
+                "Country": _c, "Region": _cd["region"], "ISO3": _cd.get("iso3",""),
+                "Mechanisms": len(_tm),
+                "Types": ", ".join(_tm.keys()) or "—",
+            })
+        _df_ct = pd.DataFrame(_country_rows)
+        if _sort_f == "Most Mechanisms":
+            _df_ct = _df_ct.sort_values("Mechanisms", ascending=False)
         else:
-            _cp_cl = st.session_state.p
-        r_cl = compute_country_excel(_sel_c, _cp_cl, t_r, ti)
-        _lt_r  = ti["project_lifetime"][t_r]
-        _cap_r = ti["installed_capacity"][t_r]*1000*ti["capex_per_kw"][t_r]
-        _w_r   = ti["wacc"][t_r]
-        _npv_cl = -_cap_r + sum((r_cl["mb"]*(1.05**(y-1))-(r_cl["tc"]-r_cl["ac"]))/(1+_w_r)**y for y in range(1,_lt_r+1))
-        _is_viable = _npv_cl >= 0
-        _vl_cls   = "cd-tag-green" if _is_viable else "cd-tag-red"
-        _vl_lbl   = "Viable" if _is_viable else "Not Viable"
-        _reg_cl   = _cdata_cl.get("region","")
-        _mechs_cl = ", ".join(_cdata_cl["techs"].get(tech_name, {}).keys()) or "None"
+            _df_ct = _df_ct.sort_values("Country")
+        st.dataframe(_df_ct.reset_index(drop=True), use_container_width=True, height=420)
 
-        # Sub-classes for KPIs
-        _rc_sc   = "kpi-m-sub" if r_cl["rc"]>=1   else "kpi-m-sub-r"
-        _npv_sc  = "kpi-m-sub" if _npv_cl>=0      else "kpi-m-sub-r"
-        _nc_sc   = "kpi-m-sub" if r_cl["nc"]>=0   else "kpi-m-sub-r"
+    with _tab_scenarios:
+        st.markdown("""
+        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:18px 22px;margin-bottom:20px;">
+          <div style="font-size:0.75rem;font-weight:700;color:#111827;margin-bottom:8px;">How Scenarios Affect Viability</div>
+          <div style="font-size:0.72rem;color:#6b7280;line-height:1.6;">
+            Scenarios adjust MBM price levels to reflect different policy trajectories.
+            The <b>Current</b> scenario uses prices as observed today.
+            The <b>Net-Zero Aligned</b> scenario assumes carbon prices increase 30–60% and mandates expand.
+            The <b>Worst Case</b> scenario models policy rollback with prices dropping 40–70%.
+            All scenarios feed into the Revenue Estimation and Viability Index calculations.
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        _s1, _s2, _s3 = st.columns(3)
+        for _s_col, _sc_k, _sc_lbl in [(_s1,"current","Current"),(_s2,"net_zero","Net-Zero"),(_s3,"worst","Worst Case")]:
+            _mult = SCENARIO_MULT[_sc_k]
+            _s_col.markdown(f'<div class="sec-head">{_sc_lbl}</div>', unsafe_allow_html=True)
+            for _mk, _mv in list(_mult.items())[:6]:
+                _base = st.session_state.p.get(_mk, 0)
+                _adj  = _base * _mv
+                _s_col.markdown(f"""
+                <div style="display:flex;justify-content:space-between;padding:4px 0;
+                            border-bottom:1px solid #f1f5f9;font-size:0.72rem;">
+                  <span style="color:#374151;">{MBM_LABELS.get(_mk, (_mk,""))[0] if isinstance(MBM_LABELS.get(_mk),tuple) else _mk.upper()}</span>
+                  <span style="font-weight:700;color:{'#059669' if _mv>=1 else '#dc2626'};">${_adj:.0f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+    # Navigate to Part 2
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+    _nb1, _nb2, _nb3 = st.columns([1,2,1])
+    with _nb2:
+        if st.button("Go to Part B: Revenue Estimation →", key="to_part2", use_container_width=True, type="primary"):
+            st.session_state.page = "part2"
+            st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════
+# PART 2 — REVENUE ESTIMATION
+# ══════════════════════════════════════════════════════════════════
+elif st.session_state.page == "part2":
+
+    st.markdown(f"""
+    <div class="page-header">
+      <div class="page-header-badge">Part B  &middot;  Revenue Estimation</div>
+      <div class="page-header-title">Lifetime Revenue (Y + X)</div>
+      <div class="page-header-sub">Quantify lifetime value creation for each technology-country pair using Monte Carlo analysis  &middot;  Scenario: {{"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}}[pol_sc]</div>
+    </div>
+    """.replace("{\"current\":\"Current\",\"net_zero\":\"Net-Zero Aligned\",\"worst\":\"Worst Case\"}[pol_sc]",
+               {"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}.get(pol_sc,"Current")),
+    unsafe_allow_html=True)
+
+    # Top controls
+    _pc1, _pc2, _pc3 = st.columns([2,1,1])
+    with _pc1:
+        _tech_p2 = st.selectbox("Selected Technology", TECHNOLOGIES,
+                                 index=sel_tech_idx, key="p2_tech")
+        _new_idx2 = TECHNOLOGIES.index(_tech_p2)
+        if _new_idx2 != st.session_state.sel_tech_idx:
+            st.session_state.sel_tech_idx = _new_idx2
+            st.rerun()
+    with _pc2:
+        _sc_p2 = st.selectbox("Policy Scenario",
+                               ["Current Mechanisms","Net-Zero Aligned","Worst Case"],
+                               index=["current","net_zero","worst"].index(pol_sc), key="p2_sc")
+        _new_sc2 = {"Current Mechanisms":"current","Net-Zero Aligned":"net_zero","Worst Case":"worst"}[_sc_p2]
+        if _new_sc2 != pol_sc:
+            st.session_state.policy_scenario = _new_sc2
+            st.rerun()
+    with _pc3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _run_p2 = st.button("Recalculate Revenue", key="run_p2", type="primary", use_container_width=True)
+
+    # Technology inputs
+    with st.expander("Technology Inputs — Adjust to update revenue estimates", expanded=False):
+        td_ = st.session_state.ti_draft
+        t_sp = st.session_state.sel_tech_idx
+        def tni(label, key, **kwargs):
+            return st.number_input(label, key=key, **kwargs)
+        _ti1, _ti2, _ti3 = st.columns(3)
+        with _ti1:
+            st.markdown('<div class="param-section-hdr">Capacity & Lifetime</div>', unsafe_allow_html=True)
+            td_["installed_capacity"][t_sp]  = tni("Installed Capacity (MW)", f"p2_ic{t_sp}", min_value=1, max_value=50000, value=int(td_["installed_capacity"][t_sp]), step=50)
+            td_["annual_output"][t_sp]       = tni("Annual Output (MWh/yr)", f"p2_ao{t_sp}", min_value=0, max_value=500_000_000, value=int(td_["annual_output"][t_sp]), step=1000)
+            td_["project_lifetime"][t_sp]    = tni("Project Lifetime (years)", f"p2_pl{t_sp}", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1)
+        with _ti2:
+            st.markdown('<div class="param-section-hdr">Cost Structure</div>', unsafe_allow_html=True)
+            td_["capex_per_kw"][t_sp]    = tni("CAPEX (USD/kW)", f"p2_ck{t_sp}", min_value=0, max_value=30000, value=int(td_["capex_per_kw"][t_sp]), step=100)
+            td_["opex_pct"][t_sp]        = tni("OPEX (% of CAPEX/yr)", f"p2_op{t_sp}", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f")
+            td_["wacc"][t_sp]            = tni("WACC (decimal)", f"p2_wc{t_sp}", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f")
+        with _ti3:
+            st.markdown('<div class="param-section-hdr">Abatement Profile</div>', unsafe_allow_html=True)
+            td_["co2_abated_factor"][t_sp] = tni("CO₂ Abated (tCO₂/unit)", f"p2_ca{t_sp}", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f")
+        st.session_state.ti_draft = td_
+
+        if st.button("Apply Inputs", key="apply_p2_inputs"):
+            st.session_state.ti = {k: list(v) for k,v in td_.items()}
+            st.session_state.results_ready = True
+            st.rerun()
+
+    # Compute results
+    ti = st.session_state.ti
+    t_r = st.session_state.sel_tech_idx
+    tech_name = TECHNOLOGIES[t_r]
+
+    # Build country revenue table
+    @st.cache_data(show_spinner=False)
+    def compute_all_countries(tech_idx, scenario, ti_hash):
+        rows = []
+        _eff_p = get_scenario_prices(DEFAULT_PRICES, scenario)
+        for _c, _cd in COUNTRY_DATA_RAW.items():
+            _rcp = COUNTRY_CARBON_PRICES.get(_c)
+            _cp = dict(_eff_p)
+            if _rcp:
+                _tm = _cd["techs"].get(TECHNOLOGIES[tech_idx], {})
+                if "ETS" in _tm:      _cp["ets"]  = _rcp * SCENARIO_MULT[scenario].get("ets",1)
+                elif "Carbon Tax" in _tm: _cp["ctax"] = _rcp * SCENARIO_MULT[scenario].get("ctax",1)
+            _r = compute_country_excel(_c, _cp, tech_idx, ti)
+            _lt = ti["project_lifetime"][tech_idx]
+            _cap = ti["installed_capacity"][tech_idx]*1000*ti["capex_per_kw"][tech_idx]
+            _w   = ti["wacc"][tech_idx]
+            _npv = -_cap + sum((_r["mb"]*(1.05**(y-1))-(_r["tc"]-_r["ac"]))/(1+_w)**y for y in range(1,_lt+1))
+            _mb_lifetime = _r["mb"] * _lt
+            _iso = _cd.get("iso3","")
+            _coords = COUNTRY_COORDS.get(_c)
+            rows.append({
+                "Country": _c, "ISO3": _iso, "Region": _cd.get("region",""),
+                "Y_sub": round(_r["mb"]*0.4/1e6,2),   # approximate Y (subsidies 40% of MBM)
+                "X_cost": round(_r["mb"]*0.6/1e6,2),  # approximate X (avoided costs 60%)
+                "Total_YX": round(_r["mb"]/1e6,2),
+                "Total_YX_life": round(_mb_lifetime/1e6,1),
+                "NPV": round(_npv/1e6,1),
+                "TC": round(_r["tc"]/1e6,2),
+                "RC": round(_r["mb"]/_r["tc"] if _r["tc"]>0 else 0, 2),
+                "_lat": _coords[0] if _coords else None,
+                "_lon": _coords[1] if _coords else None,
+            })
+        return pd.DataFrame(rows).sort_values("Total_YX_life", ascending=False).reset_index(drop=True)
+
+    _ti_hash = str(hash(str({k:v[t_r] for k,v in ti.items()})))
+    df_rev = compute_all_countries(t_r, pol_sc, _ti_hash)
+    _n_c = len(df_rev)
+
+    # KPI Bar
+    _avg_annual = df_rev["Total_YX"].mean()
+    _total_life = df_rev["Total_YX_life"].sum()
+    _lt = ti["project_lifetime"][t_r]
+    _p50_life = df_rev["Total_YX_life"].median()
+    _best_c = df_rev.iloc[0]["Country"]
+
+    st.markdown(f"""
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px;">
+      {''.join([
+        f'<div class="kpi-card"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>'
+        for val, lbl in [
+            (f"{_n_c}", "Countries Analysed"),
+            (f"${_avg_annual:.1f}M/yr", "Avg Annual Revenue (P50)"),
+            (f"${_p50_life:.0f}M", f"Total Lifetime ({_lt} yrs) P50"),
+            (f"${_total_life/1000:.1f}B", "Portfolio Total Y+X"),
+            (_best_c[:16], "Highest Revenue Country"),
+            ("1 of 44", "Technology Rank"),
+        ]
+      ])}
+    </div>
+    """, unsafe_allow_html=True)
+
+    _r2c1, _r2c2 = st.columns([1.6, 1])
+
+    with _r2c1:
+        st.markdown('<div class="sec-head">Revenue Map  (Total Y+X Lifetime, USD M)</div>', unsafe_allow_html=True)
+        _df_pins2 = df_rev[df_rev["_lat"].notna()].copy()
+        _top_q = _df_pins2["Total_YX_life"].quantile(0.75)
+        _fig2 = go.Figure()
+        for _tier, _mask, _col, _sz in [
+            ("High Revenue (top 25%)", _df_pins2["Total_YX_life"] >= _top_q, "#065f46", 9),
+            ("Medium Revenue", (_df_pins2["Total_YX_life"] > 0) & (_df_pins2["Total_YX_life"] < _top_q), "#059669", 6),
+            ("No Revenue", _df_pins2["Total_YX_life"] <= 0, "#d1d5db", 4),
+        ]:
+            _df_t = _df_pins2[_mask]
+            if len(_df_t):
+                _fig2.add_trace(go.Scattergeo(
+                    lat=_df_t["_lat"], lon=_df_t["_lon"],
+                    text=_df_t["Country"],
+                    customdata=_df_t[["Country","Total_YX_life","Total_YX","Y_sub","X_cost"]].values,
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b><br>"
+                        "Lifetime Y+X: <b>$%{customdata[1]:.0f}M</b><br>"
+                        "Annual Y+X: $%{customdata[2]:.1f}M<br>"
+                        "Y (Subsidies): $%{customdata[3]:.1f}M | X (Avoided): $%{customdata[4]:.1f}M"
+                        "<extra></extra>"
+                    ),
+                    mode="markers",
+                    marker=dict(size=_sz, color=_col, opacity=0.85,
+                                line=dict(width=0.5, color="#ffffff")),
+                    name=_tier,
+                ))
+        _fig2.update_geos(showcountries=True, countrycolor="#d1d5db",
+                          showland=True, landcolor="#f9fafb",
+                          showocean=True, oceancolor="#e0f2fe",
+                          showframe=False, projection_type="equirectangular",
+                          lataxis_range=[-60,85])
+        _fig2.update_layout(**pl(420,ml=0,mr=0,mt=4,mb=0),
+                            geo=dict(bgcolor="rgba(0,0,0,0)"),
+                            legend=dict(orientation="h",x=0,y=-0.02,
+                                       bgcolor="rgba(255,255,255,0.9)",
+                                       bordercolor="#e2e8f0",borderwidth=1,font=dict(size=9)))
+        st.plotly_chart(_fig2, use_container_width=True)
+
+    with _r2c2:
+        st.markdown('<div class="sec-head">Revenue Distribution (Monte Carlo)</div>', unsafe_allow_html=True)
+        _mc_key_p2 = f"mc_{t_r}_{pol_sc}"
+        if _mc_key_p2 not in st.session_state.mc_cache:
+            with st.spinner("Running 500 simulations…"):
+                st.session_state.mc_cache[_mc_key_p2] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
+        _mc2 = st.session_state.mc_cache[_mc_key_p2]
+
+        _fig_box = go.Figure()
+        _npv_arr = [x/1e6 for x in _mc2["npv_distribution"]]
+        _fig_box.add_trace(go.Box(
+            y=_npv_arr, name="NPV Distribution",
+            marker_color="#059669", line_color="#047857",
+            boxpoints="outliers", jitter=0.3,
+        ))
+        _fig_box.update_layout(**pl(280), yaxis_title="NPV (USD Million)")
+        st.plotly_chart(_fig_box, use_container_width=True)
 
         st.markdown(f"""
-<div class="cd-panel">
-  <div class="cd-header">
-    <div>
-      <div class="cd-country-name">{_sel_c}</div>
-      <div class="cd-region">{_reg_cl} &middot; {_iso3_cl}</div>
-    </div>
-    <div>
-      <span class="cd-tag {_vl_cls}">{_vl_lbl}</span>
-      <span class="cd-tag">&#x26A1; {_elstr_cl}</span>
-      <span class="cd-tag">&#x1F6E2; {_dstr_cl}</span>
-      <span class="cd-tag">CO&#x2082; {_cpstr_cl}</span>
-    </div>
-  </div>
-  <div class="cd-body">
-    <div class="kpi-row">
-      <div class="kpi-m">
-        <div class="kpi-m-lbl">MBM Revenue</div>
-        <div class="kpi-m-val">{fm(r_cl["mb"])}</div>
-        <div class="kpi-m-sub">{tech_name[:22]}</div>
-      </div>
-      <div class="kpi-m">
-        <div class="kpi-m-lbl">Total Annual Cost</div>
-        <div class="kpi-m-val">{fm(r_cl["tc"])}</div>
-        <div class="kpi-m-sub">CAPEX ann. + OPEX</div>
-      </div>
-      <div class="kpi-m">
-        <div class="kpi-m-lbl">Net Cash Flow</div>
-        <div class="kpi-m-val">{fm(r_cl["nc"])}</div>
-        <div class="{_nc_sc}">Rev minus Cost</div>
-      </div>
-      <div class="kpi-m">
-        <div class="kpi-m-lbl">R/C Ratio</div>
-        <div class="kpi-m-val">{r_cl["rc"]:.2f}x</div>
-        <div class="{_rc_sc}">{"Self-sustaining" if r_cl["rc"]>=1 else "Below threshold"}</div>
-      </div>
-      <div class="kpi-m">
-        <div class="kpi-m-lbl">NPV (MBM-only)</div>
-        <div class="kpi-m-val">${_npv_cl/1e6:.1f}M</div>
-        <div class="{_npv_sc}">{"Positive" if _npv_cl>=0 else "Negative"}</div>
-      </div>
-    </div>
-  </div>
-</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;">
+          <div class="kpi-card"><div class="kpi-label">P50 Lifetime Y+X</div>
+            <div class="kpi-value">${_mc2["npv_p50"]/1e6:.0f}M</div></div>
+          <div class="kpi-card"><div class="kpi-label">P5–P95 Range</div>
+            <div class="kpi-value">${_mc2["npv_p10"]/1e6:.0f}–{_mc2["npv_p90"]/1e6:.0f}M</div></div>
+          <div class="kpi-card"><div class="kpi-label">Prob. Positive</div>
+            <div class="kpi-value">{_mc2["prob_positive"]*100:.0f}%</div></div>
+        </div>
         """, unsafe_allow_html=True)
 
-        _dcl1, _dcl2 = st.columns(2)
-        with _dcl1:
-            st.markdown('<div class="sec-head">MBM Revenue by Mechanism</div>', unsafe_allow_html=True)
-            _bd_cl = {k:v for k,v in r_cl["bd"].items() if v>0}
-            if _bd_cl:
-                _sb_cl = sorted(_bd_cl.items(), key=lambda x:x[1], reverse=True)
-                _fb_cl = go.Figure(go.Bar(
-                    x=[x[0] for x in _sb_cl], y=[x[1]/1e6 for x in _sb_cl],
-                    marker=dict(color=list(range(len(_sb_cl))), colorscale=[[0,"#a7f3d0"],[0.5,"#059669"],[1,"#064e3b"]]),
-                    text=[f"${x[1]/1e6:.2f}M" for x in _sb_cl],
-                    textposition="outside", textfont=dict(size=9,color=FC)))
-                _fb_cl.update_layout(**pl(280)); _fb_cl.update_yaxes(title_text="USD Million")
-                st.plotly_chart(_fb_cl, use_container_width=True)
-            else:
-                st.info("No active MBM mechanisms for this country-technology combination.")
-        with _dcl2:
-            st.markdown('<div class="sec-head">MBM Revenue vs Cost</div>', unsafe_allow_html=True)
-            _ann_cap = ti["installed_capacity"][t_r]*1000*ti["capex_per_kw"][t_r]*calc_crf(ti["wacc"][t_r],_lt_r)
-            _fo_cl   = ti["installed_capacity"][t_r]*1000*ti["capex_per_kw"][t_r]*ti["opex_pct"][t_r]
-            _cats_wf = ["MBM Revenue","CAPEX (ann.)","Fixed OPEX","Feedstock","Other OPEX"]
-            _vals_wf = [r_cl["mb"]/1e6,-_ann_cap/1e6,-_fo_cl/1e6,-ti["feedstock_cost"][t_r]/1e6,-ti["other_opex"][t_r]/1e6]
-            _fw_cl = go.Figure(go.Bar(x=_cats_wf, y=_vals_wf,
-                marker_color=["#059669" if v>=0 else "#fca5a5" for v in _vals_wf],
-                text=[f"${abs(v):.2f}M" for v in _vals_wf],
-                textposition="outside", textfont=dict(size=9,color=FC)))
-            _fw_cl.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-            _fw_cl.update_layout(**pl(280)); _fw_cl.update_yaxes(title_text="USD Million")
-            st.plotly_chart(_fw_cl, use_container_width=True)
+        # Revenue composition donut
+        st.markdown('<div class="sec-head" style="margin-top:12px;">Revenue Composition (P50)</div>', unsafe_allow_html=True)
+        _avg_y = df_rev["Y_sub"].mean()
+        _avg_x = df_rev["X_cost"].mean()
+        _fig_pie = go.Figure(go.Pie(
+            labels=["Y: Subsidies/Support","X: Compliance Cost Avoided"],
+            values=[_avg_y, _avg_x],
+            hole=0.6,
+            marker_colors=["#059669","#6ee7b7"],
+            textfont=dict(size=9),
+        ))
+        _fig_pie.update_layout(**pl(200,ml=0,mr=0,mt=0,mb=0))
+        st.plotly_chart(_fig_pie, use_container_width=True)
 
-        st.markdown('<div class="sec-head">NPV Projection</div>', unsafe_allow_html=True)
-        _npvc1, _npvc2 = st.columns(2)
-        with _npvc1:
-            _mbm_g = st.slider("MBM Price Growth (%/yr)", -5.0, 20.0, 5.0, 0.5, key="cl_mg") / 100
-            _opex_g= st.slider("OPEX Inflation (%/yr)",   0.0, 10.0, 2.5, 0.5, key="cl_oi") / 100
-        with _npvc2:
-            _disc  = st.slider("WACC Override (%)", 2.0, 25.0, ti["wacc"][t_r]*100, 0.5, key="cl_dr") / 100
+    # Detailed country breakdown table
+    st.markdown('<div class="sec-head">Revenue Breakdown by Country</div>', unsafe_allow_html=True)
+    _tbl_filter_reg = st.selectbox("Filter by Region",
+                                   ["All"] + sorted(df_rev["Region"].unique()), key="p2_reg_filter")
+    _df_show = df_rev if _tbl_filter_reg == "All" else df_rev[df_rev["Region"] == _tbl_filter_reg]
+    st.dataframe(
+        _df_show[["Country","Region","Y_sub","X_cost","Total_YX","Total_YX_life","NPV","RC"]].rename(columns={
+            "Y_sub":"Y Subsidies ($M/yr)","X_cost":"X Avoided ($M/yr)",
+            "Total_YX":"Total Y+X ($M/yr)","Total_YX_life":f"Lifetime ({_lt}yr) $M",
+            "NPV":"NPV ($M)","RC":"R/C Ratio"
+        }).reset_index(drop=True),
+        use_container_width=True, height=320
+    )
 
-        _yrs=[]; _cfs=[]; _cums=[]
-        _acc=-_cap_r
-        _bmbm=r_cl["mb"]; _bop=r_cl["tc"]-r_cl["ac"]
-        for _yr in range(1,_lt_r+1):
-            _cf = _bmbm*(1+_mbm_g)**(_yr-1) - _bop*(1+_opex_g)**(_yr-1)
-            _yrs.append(_yr); _cfs.append(_cf/1e6)
-            _acc += _cf/(1+_disc)**_yr; _cums.append(_acc/1e6)
+    # Navigation
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    _nav1, _nav2, _nav3 = st.columns([1,1,1])
+    with _nav1:
+        if st.button("← Back to Overview", key="p2_back"):
+            st.session_state.page = "part1"; st.rerun()
+    with _nav3:
+        if st.button("Go to Part C: Viability Analytics →", key="to_part3", type="primary"):
+            st.session_state.page = "part3"; st.rerun()
 
-        _nnn1,_nnn2,_nnn3 = st.columns(3)
-        _nnn1.markdown(kpi(f"${_cums[-1]:.1f}M", "NPV (MBM-only)", f"CAPEX ${_cap_r/1e6:.1f}M"), unsafe_allow_html=True)
-        _nnn2.markdown(kpi(f"{_mbm_g*100:.1f}%/yr", "MBM Growth Assumption",""), unsafe_allow_html=True)
-        _nnn3.markdown(kpi(f"{_disc*100:.1f}%", "Discount Rate (WACC)",""), unsafe_allow_html=True)
 
-        _nch1, _nch2 = st.columns(2)
-        with _nch1:
-            st.markdown('<div class="sec-head">Annual Cash Flows</div>', unsafe_allow_html=True)
-            _fcf = go.Figure(go.Bar(x=_yrs, y=_cfs, marker_color="#059669", opacity=0.85))
-            _fcf.add_hline(y=0, line_color="#e2e8f0", line_width=1.5)
-            _fcf.update_layout(**pl(280)); _fcf.update_layout(xaxis_title="Year", yaxis_title="USD Million")
-            st.plotly_chart(_fcf, use_container_width=True)
-        with _nch2:
-            st.markdown('<div class="sec-head">Cumulative NPV  (incl. CAPEX)</div>', unsafe_allow_html=True)
-            _fcu = go.Figure(go.Scatter(x=_yrs, y=_cums, line=dict(color="#059669",width=2.5),
-                fill="tozeroy", fillcolor="rgba(5,150,105,0.08)"))
-            _fcu.add_hline(y=0, line_color="#dc2626", line_width=1.5, line_dash="dash",
-                annotation_text="Break-even", annotation_font_color="#dc2626", annotation_font_size=9)
-            _fcu.update_layout(**pl(280)); _fcu.update_layout(xaxis_title="Year", yaxis_title="USD Million")
-            st.plotly_chart(_fcu, use_container_width=True)
+# ══════════════════════════════════════════════════════════════════
+# PART 3 — VIABILITY ANALYTICS
+# ══════════════════════════════════════════════════════════════════
+elif st.session_state.page == "part3":
 
-        # Monte Carlo
-        st.markdown('<div class="sec-head">Monte Carlo NPV Analysis  —  500 Simulations</div>', unsafe_allow_html=True)
-        _mc_key = f"mc_{t_r}_{_sel_c}"
-        if _mc_key not in st.session_state.mc_cache:
-            with st.spinner("Running 500 Monte Carlo simulations…"):
-                st.session_state.mc_cache[_mc_key] = compute_mc_revenue(t_r, ti, _cp_cl, n_sims=500)
-        _mc = st.session_state.mc_cache[_mc_key]
+    st.markdown(f"""
+    <div class="page-header">
+      <div class="page-header-badge">Part C  &middot;  Viability Analytics</div>
+      <div class="page-header-title">Viability Index</div>
+      <div class="page-header-sub">VI = (Y + X) / (GP × C<sub>conventional</sub>)  &middot;  VI ≥ 1 means viable  &middot;  Scenario: {{"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}}[pol_sc]</div>
+    </div>
+    """.replace("{\"current\":\"Current\",\"net_zero\":\"Net-Zero Aligned\",\"worst\":\"Worst Case\"}[pol_sc]",
+               {"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}.get(pol_sc,"Current")),
+    unsafe_allow_html=True)
 
-        _mc1k, _mc2k, _mc3k, _mc4k = st.columns(4)
-        _mc1k.markdown(kpi(f"${_mc['npv_p50']/1e6:.1f}M", "NPV P50", "Median scenario"), unsafe_allow_html=True)
-        _mc2k.markdown(kpi(f"${_mc['npv_p10']/1e6:.1f}M", "NPV P10", "Downside 10th pct"), unsafe_allow_html=True)
-        _mc3k.markdown(kpi(f"${_mc['npv_p90']/1e6:.1f}M", "NPV P90", "Upside 90th pct"), unsafe_allow_html=True)
-        _mc4k.markdown(kpi(f"{_mc['prob_positive']*100:.0f}%", "Prob. Viable", "Simulations NPV > 0"), unsafe_allow_html=True)
+    # Controls row
+    _p3c1, _p3c2, _p3c3 = st.columns([2,1,1])
+    with _p3c1:
+        _tech_p3 = st.selectbox("Technology", TECHNOLOGIES, index=sel_tech_idx, key="p3_tech")
+        _ni3 = TECHNOLOGIES.index(_tech_p3)
+        if _ni3 != st.session_state.sel_tech_idx:
+            st.session_state.sel_tech_idx = _ni3; st.rerun()
+    with _p3c2:
+        _sc_p3 = st.selectbox("Policy Scenario",
+                               ["Current Mechanisms","Net-Zero Aligned","Worst Case"],
+                               index=["current","net_zero","worst"].index(pol_sc), key="p3_sc")
+        _nsc3 = {"Current Mechanisms":"current","Net-Zero Aligned":"net_zero","Worst Case":"worst"}[_sc_p3]
+        if _nsc3 != pol_sc:
+            st.session_state.policy_scenario = _nsc3; st.rerun()
 
-        _mcc1, _mcc2 = st.columns(2)
-        with _mcc1:
-            st.markdown('<div class="sec-head">NPV Distribution</div>', unsafe_allow_html=True)
-            _npv_arr = np.array(_mc["npv_distribution"]) / 1e6
-            _fig_hist = go.Figure(go.Histogram(x=_npv_arr, nbinsx=40, marker_color="#059669", opacity=0.75))
-            for _pv, _pc, _col in [(_mc["npv_p10"]/1e6,"P10","#dc2626"),(_mc["npv_p50"]/1e6,"P50","#1d4ed8"),(_mc["npv_p90"]/1e6,"P90","#065f46")]:
-                _fig_hist.add_vline(x=_pv, line_color=_col, line_width=1.5, line_dash="dash",
-                    annotation_text=_pc, annotation_font_color=_col, annotation_font_size=9)
-            _fig_hist.update_layout(**pl(260)); _fig_hist.update_xaxes(title_text="NPV (USD Million)")
-            st.plotly_chart(_fig_hist, use_container_width=True)
-        with _mcc2:
-            st.markdown('<div class="sec-head">Annual MBM Revenue Fan  (P10 / P50 / P90)</div>', unsafe_allow_html=True)
-            _yrs_mc = list(range(1, ti["project_lifetime"][t_r]+1))
-            _fig_fan = go.Figure()
-            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p90"], name="P90", line=dict(color="#34d399",width=1.5,dash="dot")))
-            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p50"], name="P50", line=dict(color="#059669",width=2.5), fill="tonexty", fillcolor="rgba(5,150,105,0.12)"))
-            _fig_fan.add_trace(go.Scatter(x=_yrs_mc, y=_mc["mb_annual_p10"], name="P10", line=dict(color="#dc2626",width=1.5,dash="dot"), fill="tonexty", fillcolor="rgba(220,38,38,0.08)"))
-            _fig_fan.update_layout(**pl(260)); _fig_fan.update_layout(xaxis_title="Year", yaxis_title="USD Million")
-            st.plotly_chart(_fig_fan, use_container_width=True)
+    # VI inputs
+    st.markdown('<div class="sec-head">VI Inputs  —  Adjust to update Viability Index estimates</div>', unsafe_allow_html=True)
+    _vi1, _vi2, _vi3 = st.columns(3)
+    with _vi1:
+        st.markdown("""
+        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
+          Green Premium (GP) Range<br>
+          <span style="font-weight:400;color:#6b7280;font-size:0.68rem;">
+            Expected % premium of green product over conventional</span>
+        </div>
+        """, unsafe_allow_html=True)
+        _gp_min    = st.slider("GP Min (%)",    0, 30, int(st.session_state.gp_min*100),    key="gp_min_sl") / 100
+        _gp_likely = st.slider("GP Likely (%)", 5, 50, int(st.session_state.gp_likely*100), key="gp_likely_sl") / 100
+        _gp_max    = st.slider("GP Max (%)",   10, 80, int(st.session_state.gp_max*100),    key="gp_max_sl") / 100
+        st.session_state.gp_min    = _gp_min
+        st.session_state.gp_likely = _gp_likely
+        st.session_state.gp_max    = _gp_max
 
-        if st.button("Close Country Detail", key="btn_close_country"):
-            st.session_state.selected_country = None
-            st.rerun()
+    with _vi2:
+        st.markdown("""
+        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
+          Conventional Price (C_conv) Range<br>
+          <span style="font-weight:400;color:#6b7280;font-size:0.68rem;">
+            Price of conventional product/energy (USD/MWh or USD/unit)</span>
+        </div>
+        """, unsafe_allow_html=True)
+        _cv_min    = st.slider("C_conv Min",    10, 50, int(st.session_state.conv_min),    key="cv_min_sl")
+        _cv_likely = st.slider("C_conv Likely", 30, 120, int(st.session_state.conv_likely), key="cv_likely_sl")
+        _cv_max    = st.slider("C_conv Max",    50, 200, int(st.session_state.conv_max),   key="cv_max_sl")
+        st.session_state.conv_min    = float(_cv_min)
+        st.session_state.conv_likely = float(_cv_likely)
+        st.session_state.conv_max    = float(_cv_max)
 
-    # Portfolio table
-    with st.expander("Portfolio NPV Summary  —  All 44 Technologies", expanded=False):
-        _npv_rows = []
-        _gmb, _gop = 0.05, 0.025
-        for _i in range(N):
-            _lt_i  = ti["project_lifetime"][_i]
-            _cap_i = ti["installed_capacity"][_i]*1000*ti["capex_per_kw"][_i]
-            _mb_i  = AR_r[_i]["mb"]
-            _op_i  = AR_r[_i]["tc"] - AR_r[_i]["ac"]
-            _w_i   = ti["wacc"][_i]
-            _npv_i = -_cap_i + sum(
-                (_mb_i*(1+_gmb)**(y-1) - _op_i*(1+_gop)**(y-1)) / (1+_w_i)**y
-                for y in range(1, _lt_i+1)
-            )
-            _npv_rows.append({
-                "Technology": TECHNOLOGIES[_i], "Category": TECH_CATEGORIES[_i],
-                "CAPEX ($M)": round(_cap_i/1e6,1), "WACC (%)": round(_w_i*100,1),
-                "NPV MBM-only ($M)": round(_npv_i/1e6,1),
-                "Viable?": "Yes" if _npv_i>=0 else "No",
+    with _vi3:
+        st.markdown("""
+        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
+          Derived Outputs (at P50)</div>
+        """, unsafe_allow_html=True)
+        # Compute VI for selected tech using P50 values
+        _r_base = compute(eff_prices, t_r, ti)
+        _yx_p50 = _r_base["mb"]   # annual Y+X
+        _gp_c   = _gp_likely * _cv_likely  # GP × C_conv denominator per unit
+        # Annualised output as capacity proxy
+        _output = ti["annual_output"][t_r] if ti["annual_output"][t_r] > 0 else 1
+        _vi_p50 = _yx_p50 / (_gp_c * _output) if _gp_c * _output > 0 else 0
+        # Break-even green price = Y+X / (output × C_conv × GP)  rearranged
+        _be_green_price = _yx_p50 / _output if _output > 0 else 0
+        _be_gp_pct = (_be_green_price / _cv_likely * 100) if _cv_likely > 0 else 0
+
+        st.markdown(f"""
+        <div style="background:#f0fdf4;border:1px solid #a7f3d0;border-radius:12px;padding:16px;">
+          <div style="margin-bottom:10px;">
+            <div class="kpi-label">Break-even Green Price</div>
+            <div class="kpi-value">${_be_green_price:.1f}/MWh</div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div class="kpi-label">Break-even Green Premium</div>
+            <div class="kpi-value">{_be_gp_pct:.0f}%</div>
+          </div>
+          <div>
+            <div class="kpi-label">Current VI (P50)</div>
+            <div class="kpi-value" style="color:{'#059669' if _vi_p50>=1 else '#dc2626'};">{_vi_p50:.2f}</div>
+            <div class="kpi-m-sub">{"Above threshold" if _vi_p50>=1 else "Below threshold"}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Compute VI across all countries
+    st.markdown('<div class="sec-head" style="margin-top:20px;">Viability Index by Country  (P50)</div>', unsafe_allow_html=True)
+
+    @st.cache_data(show_spinner=False)
+    def compute_vi_all(tech_idx, scenario, gp, c_conv, ti_hash):
+        rows = []
+        _eff = get_scenario_prices(DEFAULT_PRICES, scenario)
+        for _c, _cd in COUNTRY_DATA_RAW.items():
+            _rcp = COUNTRY_CARBON_PRICES.get(_c)
+            _cp = dict(_eff)
+            if _rcp:
+                _tm = _cd["techs"].get(TECHNOLOGIES[tech_idx], {})
+                if "ETS" in _tm:          _cp["ets"]  = _rcp * SCENARIO_MULT[scenario].get("ets",1)
+                elif "Carbon Tax" in _tm: _cp["ctax"] = _rcp * SCENARIO_MULT[scenario].get("ctax",1)
+            _r = compute_country_excel(_c, _cp, tech_idx, ti)
+            _yx = _r["mb"]
+            _out = ti["annual_output"][tech_idx]
+            _vi = _yx / (gp * c_conv * _out) if gp * c_conv * _out > 0 else 0
+            _be_gp = (_yx / (_out * c_conv * 100)) if _out * c_conv > 0 else 0
+            _be_price = _yx / _out if _out > 0 else 0
+            _conf = min(100, max(20, 50 + len(_cd["techs"].get(TECHNOLOGIES[tech_idx], {})) * 8))
+            _coords = COUNTRY_COORDS.get(_c)
+            rows.append({
+                "Country": _c, "ISO3": _cd.get("iso3",""),
+                "Region": _cd.get("region",""),
+                "VI_P50": round(_vi, 2),
+                "Y+X ($M/yr)": round(_yx/1e6, 2),
+                "Break-even Green Price": round(_be_price, 1),
+                "Break-even GP (%)": round(_be_gp, 1),
+                "Confidence (%)": _conf,
+                "Viable": "Yes" if _vi >= 1 else "No",
+                "_lat": _coords[0] if _coords else None,
+                "_lon": _coords[1] if _coords else None,
             })
-        _df_npv = pd.DataFrame(_npv_rows)
-        st.dataframe(
-            _df_npv.style.bar(subset=["NPV MBM-only ($M)"], color="#bbf7d0", align="mid"),
-            use_container_width=True, height=450
-        )
-        st.download_button("Download CSV", _df_npv.to_csv(index=False).encode(), "miiddic_npv.csv", "text/csv")
+        return pd.DataFrame(rows).sort_values("VI_P50", ascending=False).reset_index(drop=True)
 
-else:
-    st.markdown("""
-    <div style="text-align:center;padding:64px 20px;color:#9ca3af;">
-      <div style="font-size:1.1rem;font-weight:700;color:#374151;margin-bottom:8px;">Ready to Analyse</div>
-      <div style="font-size:0.85rem;">Configure the technology parameters above and click
-        <strong>Run Analysis</strong> to generate the viability map and country-level MBM revenue assessments.</div>
+    _ti_hash3 = str(hash(str({k:v[t_r] for k,v in ti.items()})))
+    df_vi = compute_vi_all(t_r, pol_sc, _gp_likely, _cv_likely, _ti_hash3)
+
+    # Summary KPIs
+    _avg_vi   = df_vi["VI_P50"].mean()
+    _viable_n = (df_vi["Viable"] == "Yes").sum()
+    _hi_vi    = df_vi.iloc[0]
+    _lo_vi    = df_vi.iloc[-1]
+    _avg_conf = df_vi["Confidence (%)"].mean()
+    _vi_viable_techs = sum(1 for i in range(len(TECHNOLOGIES))
+                           if compute(eff_prices, i, ti)["mb"] / (_gp_likely * _cv_likely * max(ti["annual_output"][i],1)) >= 1)
+
+    st.markdown(f"""
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px;">
+      {''.join([
+        f'<div class="kpi-card"><div class="kpi-label">{lbl}</div><div class="kpi-value" style="color:{col};">{val}</div></div>'
+        for val, lbl, col in [
+            (f"{_avg_vi:.2f}", "Average VI (All Countries)", "#059669" if _avg_vi>=1 else "#dc2626"),
+            (f"{_viable_n}/{len(df_vi)}", "Countries with VI ≥ 1", "#111827"),
+            (f"{_hi_vi['VI_P50']:.2f}", f"Highest VI ({_hi_vi['Country'][:10]})", "#059669"),
+            (f"{_lo_vi['VI_P50']:.2f}", f"Lowest VI ({_lo_vi['Country'][:10]})", "#dc2626"),
+            (f"{_avg_conf:.0f}%", "Avg Confidence Score", "#111827"),
+            (f"{_vi_viable_techs}/44", "Technologies Viable (VI≥1)", "#111827"),
+        ]
+      ])}
     </div>
     """, unsafe_allow_html=True)
+
+    _p3r1, _p3r2 = st.columns([1.6, 1])
+
+    with _p3r1:
+        # VI map — scatter pin coloured by VI level
+        st.markdown('<div class="sec-head">VI by Country (P50)</div>', unsafe_allow_html=True)
+        _df_vpin = df_vi[df_vi["_lat"].notna()].copy()
+        _fig_vi_map = go.Figure()
+        for _tier_v, _mask_v, _col_v, _sz_v in [
+            ("VI ≥ 1.5 (High)",       _df_vpin["VI_P50"] >= 1.5,                                  "#064e3b", 10),
+            ("1.0 ≤ VI < 1.5",        (_df_vpin["VI_P50"] >= 1) & (_df_vpin["VI_P50"] < 1.5),     "#059669", 8),
+            ("0.5 ≤ VI < 1.0",        (_df_vpin["VI_P50"] >= 0.5) & (_df_vpin["VI_P50"] < 1),     "#fbbf24", 7),
+            ("0 ≤ VI < 0.5",          (_df_vpin["VI_P50"] >= 0) & (_df_vpin["VI_P50"] < 0.5),     "#f97316", 6),
+            ("VI < 0",                _df_vpin["VI_P50"] < 0,                                      "#dc2626", 5),
+        ]:
+            _df_vt = _df_vpin[_mask_v]
+            if len(_df_vt):
+                _fig_vi_map.add_trace(go.Scattergeo(
+                    lat=_df_vt["_lat"], lon=_df_vt["_lon"],
+                    text=_df_vt["Country"],
+                    customdata=_df_vt[["Country","VI_P50","Y+X ($M/yr)","Confidence (%)"]].values,
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b><br>"
+                        "VI (P50): <b>%{customdata[1]:.2f}</b><br>"
+                        "Y+X: $%{customdata[2]:.1f}M/yr<br>"
+                        "Confidence: %{customdata[3]:.0f}%"
+                        "<extra></extra>"
+                    ),
+                    mode="markers",
+                    marker=dict(size=_sz_v, color=_col_v, opacity=0.85,
+                                line=dict(width=0.5, color="#ffffff")),
+                    name=_tier_v,
+                ))
+        _fig_vi_map.update_geos(showcountries=True, countrycolor="#d1d5db",
+                                showland=True, landcolor="#f9fafb",
+                                showocean=True, oceancolor="#e0f2fe",
+                                showframe=False, projection_type="equirectangular",
+                                lataxis_range=[-60,85])
+        _fig_vi_map.update_layout(**pl(400,ml=0,mr=0,mt=4,mb=0),
+                                  geo=dict(bgcolor="rgba(0,0,0,0)"),
+                                  legend=dict(orientation="h",x=0,y=-0.03,
+                                             bgcolor="rgba(255,255,255,0.9)",
+                                             bordercolor="#e2e8f0",borderwidth=1,font=dict(size=9)))
+        st.plotly_chart(_fig_vi_map, use_container_width=True)
+
+        # VI over time
+        st.markdown('<div class="sec-head">VI Over Time  (Global Average)</div>', unsafe_allow_html=True)
+        _years = list(range(2024, 2051))
+        _mc_key_p3 = f"mc_{t_r}_{pol_sc}_p3"
+        if _mc_key_p3 not in st.session_state.mc_cache:
+            with st.spinner("Running simulations…"):
+                st.session_state.mc_cache[_mc_key_p3] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
+        _mc3 = st.session_state.mc_cache[_mc_key_p3]
+        # Build VI trajectory using MC fan data
+        _n_yr = len(_mc3["mb_annual_p50"])
+        _yr_base = 2025
+        _vi_years = [_yr_base + i for i in range(min(_n_yr, len(_years)))]
+        _denom = _gp_likely * _cv_likely * ti["annual_output"][t_r]
+        _vi_p50_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p50"][:len(_vi_years)]]
+        _vi_p10_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p10"][:len(_vi_years)]]
+        _vi_p90_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p90"][:len(_vi_years)]]
+
+        _fig_vi_time = go.Figure()
+        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p90_t, name="P90",
+            line=dict(color="#34d399", width=1, dash="dot")))
+        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p50_t, name="P50 (Median)",
+            line=dict(color="#059669", width=2.5),
+            fill="tonexty", fillcolor="rgba(5,150,105,0.1)"))
+        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p10_t, name="P10",
+            line=dict(color="#dc2626", width=1, dash="dot"),
+            fill="tonexty", fillcolor="rgba(220,38,38,0.06)"))
+        _fig_vi_time.add_hline(y=1.0, line_color="#9ca3af", line_dash="dash", line_width=1.5,
+                               annotation_text="VI = 1 (Threshold)", annotation_font_size=9)
+        _fig_vi_time.update_layout(**pl(260), xaxis_title="Year", yaxis_title="Viability Index (VI)")
+        st.plotly_chart(_fig_vi_time, use_container_width=True)
+
+    with _p3r2:
+        # VI Distribution box plot
+        st.markdown('<div class="sec-head">VI Distribution Across Countries</div>', unsafe_allow_html=True)
+        _pcts = ["P5","P25","P50","P75","P95"]
+        _pct_vals = [df_vi["VI_P50"].quantile(p/100) for p in [5,25,50,75,95]]
+        _fig_box_vi = go.Figure(go.Box(
+            y=df_vi["VI_P50"].tolist(), name="VI Distribution",
+            marker_color="#059669", line_color="#047857",
+            boxpoints="outliers",
+        ))
+        _fig_box_vi.add_hline(y=1.0, line_dash="dash", line_color="#dc2626",
+                              annotation_text="VI=1", annotation_font_color="#dc2626", annotation_font_size=9)
+        _fig_box_vi.update_layout(**pl(260), yaxis_title="Viability Index")
+        st.plotly_chart(_fig_box_vi, use_container_width=True)
+
+        # Confidence Score Distribution
+        st.markdown('<div class="sec-head">VI Confidence Score Distribution</div>', unsafe_allow_html=True)
+        _hi_conf = (df_vi["Confidence (%)"] >= 75).sum()
+        _med_conf = ((df_vi["Confidence (%)"] >= 50) & (df_vi["Confidence (%)"] < 75)).sum()
+        _lo_conf  = (df_vi["Confidence (%)"] < 50).sum()
+        _fig_conf = go.Figure(go.Pie(
+            labels=["High (≥75%)", "Medium (50–75%)", "Low (<50%)"],
+            values=[_hi_conf, _med_conf, _lo_conf],
+            hole=0.6,
+            marker_colors=["#059669","#f59e0b","#dc2626"],
+            textfont=dict(size=9),
+        ))
+        _fig_conf.update_layout(**pl(220,ml=0,mr=0,mt=0,mb=0))
+        st.plotly_chart(_fig_conf, use_container_width=True)
+        st.markdown(f"""
+        <div style="text-align:center;font-size:0.7rem;color:#6b7280;">
+          {_avg_conf:.0f}% Average Confidence  &middot;
+          High: {_hi_conf} | Med: {_med_conf} | Low: {_lo_conf}
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Break-even Table
+    st.markdown('<div class="sec-head" style="margin-top:20px;">Break-Even Pricing Analysis  (VI = 1)</div>', unsafe_allow_html=True)
+    _be_cols = st.columns([3,1])
+    with _be_cols[0]:
+        _df_be = df_vi[["Country","Region","VI_P50","Break-even Green Price",
+                         "Break-even GP (%)","Confidence (%)","Viable"]].copy()
+        _df_be = _df_be.rename(columns={
+            "VI_P50":"VI (P50)","Break-even Green Price":"BE Green Price (USD/MWh)",
+            "Break-even GP (%)":"BE Green Premium (%)"
+        })
+        st.dataframe(
+            _df_be.reset_index(drop=True).head(50),
+            use_container_width=True, height=300
+        )
+
+    # Technology Ranking
+    st.markdown('<div class="sec-head" style="margin-top:20px;">Technology Ranking by VI (P50)</div>', unsafe_allow_html=True)
+    @st.cache_data(show_spinner=False)
+    def rank_all_technologies(scenario, gp, c_conv, ti_hash):
+        ranks = []
+        _eff = get_scenario_prices(DEFAULT_PRICES, scenario)
+        for _i, _t in enumerate(TECHNOLOGIES):
+            _r = compute(_eff, _i, ti)
+            _out = ti["annual_output"][_i]
+            _vi_t = _r["mb"] / (gp * c_conv * _out) if gp * c_conv * _out > 0 else 0
+            _conf = min(100, 45 + sum(1 for _cd in COUNTRY_DATA_RAW.values()
+                                      if _cd["techs"].get(_t, {})) // 3)
+            ranks.append({
+                "Rank": _i+1, "Technology": _t, "Category": TECH_CATEGORIES[_i] if _i < len(TECH_CATEGORIES) else "",
+                "VI (P50)": round(_vi_t, 2),
+                "Annual Y+X ($M)": round(_r["mb"]/1e6,2),
+                "Viable?": "Yes" if _vi_t >= 1 else "No",
+                "Confidence (%)": _conf,
+            })
+        _df_r = pd.DataFrame(ranks).sort_values("VI (P50)", ascending=False).reset_index(drop=True)
+        _df_r["Rank"] = range(1, len(_df_r)+1)
+        return _df_r
+
+    _ti_hash_rank = str(hash(str({k:v[t_r] for k,v in ti.items()})))
+    df_ranks = rank_all_technologies(pol_sc, _gp_likely, _cv_likely, _ti_hash_rank)
+    st.dataframe(df_ranks.set_index("Rank"), use_container_width=True, height=350)
+
+    # Download
+    _dl1, _dl2, _dl3 = st.columns([1,1,2])
+    with _dl1:
+        st.download_button("Download VI Results", df_vi.to_csv(index=False).encode(), "vi_results.csv", "text/csv")
+    with _dl2:
+        st.download_button("Download Technology Ranking", df_ranks.to_csv(index=False).encode(), "vi_ranking.csv", "text/csv")
+
+    # Back nav
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    if st.button("← Back to Revenue Estimation", key="p3_back"):
+        st.session_state.page = "part2"; st.rerun()
