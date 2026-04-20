@@ -1847,7 +1847,7 @@ elif st.session_state.page == "part2":
         _mc_key_p2 = f"mc_{t_r}_{pol_sc}"
         if _mc_key_p2 not in st.session_state.mc_cache:
             with st.spinner("Running 500 simulations…"):
-                st.session_state.mc_cache[_mc_key_p2] = compute_mc_revenue(st.session_state.seltechidx, st.session_state.ti, eff_prices, n_sims=500)
+                st.session_state.mc_cache[_mc_key_p2] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
         _mc2 = st.session_state.mc_cache[_mc_key_p2]
 
         _fig_box = go.Figure()
@@ -1979,7 +1979,7 @@ elif st.session_state.page == "part3":
           Derived Outputs (at P50)</div>
         """, unsafe_allow_html=True)
         # Compute VI for selected tech using P50 values
-        _r_base = compute(eff_prices, st.session_state.seltechidx, st.session_state.ti)
+        _r_base = compute(eff_prices, t_r, st.session_state.ti)
         _yx_p50 = _r_base["mb"]   # annual Y+X
         _gp_c   = _gp_likely * _cv_likely  # GP × C_conv denominator per unit
         # Annualised output as capacity proxy
@@ -2121,7 +2121,7 @@ elif st.session_state.page == "part3":
         _mc_key_p3 = f"mc_{t_r}_{pol_sc}_p3"
         if _mc_key_p3 not in st.session_state.mc_cache:
             with st.spinner("Running simulations…"):
-                st.session_state.mc_cache[_mc_key_p3] = compute_mc_revenue(st.session_state.seltechidx, st.session_state.ti, eff_prices, n_sims=500)
+                st.session_state.mc_cache[_mc_key_p3] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
         _mc3 = st.session_state.mc_cache[_mc_key_p3]
         # Build VI trajectory using MC fan data
         _n_yr = len(_mc3["mb_annual_p50"])
