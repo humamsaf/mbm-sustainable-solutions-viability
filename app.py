@@ -1,2237 +1,682 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import json
+"""
+MIDDIC Viability Engine — Streamlit App (single file)
+Port dari implementasi React/TypeScript:
+  - Part 1: Overview (mekanisme & cakupan negara)
+  - Part 2: Revenue Estimation (Monte Carlo GBM, 5000 sims)
+  - Part 3: Viability Analytics (VI = (Y+X) / (GP × C_conv))
 
-st.set_page_config(
-    page_title="MIIDDIC Viability Engine",
-    page_icon="🌱",
-    layout="wide",
-    initial_sidebar_state="expanded"
+Run:
+    pip install streamlit plotly numpy pandas
+    streamlit run middic_app.py
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+
+# ============================================================================
+# PAGE CONFIG & THEME
+# ============================================================================
+st.set_page_config(page_title="MIDDIC Viability Engine", page_icon="🌱", layout="wide")
+
+MIDDIC_GREEN = "#064e3b"
+MIDDIC_GREEN_LIGHT = "#10b981"
+MIDDIC_BG = "#ecfdf5"
+
+st.markdown(
+    f"""
+    <style>
+      .block-container {{ padding-top: 1.5rem; }}
+      h1, h2, h3 {{ color: {MIDDIC_GREEN}; }}
+      .kpi-card {{
+        background: white; border: 1px solid #d1fae5; border-radius: 12px;
+        padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      }}
+      .kpi-label {{ color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }}
+      .kpi-value {{ color: {MIDDIC_GREEN}; font-size: 26px; font-weight: 700; margin-top: 4px; }}
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-html, body, [class*="css"], .stApp {
-    font-family: 'Inter', sans-serif !important;
-    background: #ffffff !important;
-}
-#MainMenu, footer, header { visibility: hidden; }
-.stDeployButton { display: none; }
-[data-testid="stSidebar"] {
-    min-width: 248px !important; max-width: 248px !important;
-    background: #ffffff !important;
-    border-right: 1px solid #e2e8f0 !important;
-    box-shadow: 2px 0 16px rgba(0,0,0,0.05) !important;
-}
-[data-testid="stSidebarContent"] { padding: 0 !important; }
-[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
-.block-container {
-    padding: 1.5rem 1.75rem 2rem 1.75rem !important;
-    max-width: 100% !important;
-    background: #ffffff !important;
-}
-.page-header {
-    background: #ffffff;
-    border: 1.5px solid #d1fae5; border-left: 4px solid #059669;
-    border-radius: 14px; padding: 22px 28px 20px 28px;
-    margin-bottom: 22px; position: relative; overflow: hidden;
-}
-.page-header::after {
-    content: ''; position: absolute; right: -50px; top: -50px;
-    width: 200px; height: 200px; border-radius: 50%;
-    background: rgba(5,150,105,0.04); pointer-events: none;
-}
-.page-header-badge {
-    display: inline-block; background: #f0fdf4;
-    border: 1px solid #a7f3d0; border-radius: 99px;
-    padding: 3px 12px; font-size: 0.65rem; font-weight: 700;
-    color: #059669; text-transform: uppercase;
-    letter-spacing: 0.1em; margin-bottom: 10px;
-}
-.page-header-title { font-size: 1.45rem; font-weight: 800; color: #064e3b; letter-spacing: -0.02em; margin: 0 0 5px 0; line-height: 1.2; }
-.page-header-sub { font-size: 0.8rem; color: #6b7280; margin: 0; font-weight: 400; }
-.kpi-card {
-    background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
-    padding: 18px 20px 16px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.05);
-    position: relative; overflow: hidden; height: 100%;
-}
-.kpi-card::before {
-    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-    width: 4px; border-radius: 12px 0 0 12px;
-    background: linear-gradient(180deg, #059669, #34d399);
-}
-.kpi-value { font-size: 1.45rem; font-weight: 800; color: #064e3b; line-height: 1; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
-.kpi-label { font-size: 0.66rem; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 4px; }
-.kpi-sub { font-size: 0.73rem; color: #059669; font-weight: 500; }
-.sec-head {
-    font-size: 0.68rem; font-weight: 700; color: #059669; text-transform: uppercase;
-    letter-spacing: 0.12em; margin: 20px 0 12px 0; display: flex; align-items: center; gap: 8px;
-}
-.sec-head::after { content: ''; flex: 1; height: 1.5px; background: linear-gradient(90deg, #d1fae5, transparent); }
-[data-testid="stPlotlyChart"] {
-    background: #ffffff !important; border: 1px solid #e2e8f0 !important;
-    border-radius: 12px !important; padding: 14px !important;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.04) !important; overflow: hidden !important;
-}
-[data-testid="stSidebar"] .stButton > button {
-    background: transparent !important; color: #374151 !important;
-    border: none !important; border-radius: 8px !important; font-size: 0.8rem !important;
-    font-weight: 500 !important; text-align: left !important; padding: 9px 14px !important;
-    box-shadow: none !important; transition: background 0.15s, color 0.15s !important; width: 100% !important;
-}
-[data-testid="stSidebar"] .stButton > button:hover { background: #f0fdf4 !important; color: #059669 !important; }
-.reset-btn > button { background: #fff7ed !important; color: #c2410c !important; border: 1px solid #fed7aa !important; border-radius: 8px !important; font-size: 0.78rem !important; font-weight: 600 !important; }
-.prog-wrap { margin-bottom: 9px; }
-.prog-row { display: flex; justify-content: space-between; font-size: 0.73rem; color: #6b7280; margin-bottom: 3px; }
-.prog-row b { color: #1f2937; font-weight: 600; }
-.prog-bg { background: #f0fdf4; border-radius: 6px; height: 5px; }
-.prog-fill { height: 5px; border-radius: 6px; background: linear-gradient(90deg, #059669, #34d399); }
-.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px; font-size: 0.68rem; font-weight: 600; margin: 2px; }
-.chip-d   { background: #d1fae5; border: 1px solid #6ee7b7; color: #065f46; }
-.chip-i   { background: #dbeafe; border: 1px solid #93c5fd; color: #1e3a8a; }
-.chip-off { background: #f9fafb; border: 1px solid #e5e7eb; color: #d1d5db; }
-.stTabs [data-baseweb="tab-list"] { gap: 0; background: transparent !important; border-bottom: 2px solid #e2e8f0 !important; }
-.stTabs [data-baseweb="tab"] { background: transparent !important; font-size: 0.79rem !important; color: #9ca3af !important; padding: 9px 20px !important; border-bottom: 2px solid transparent !important; margin-bottom: -2px !important; }
-.stTabs [aria-selected="true"] { color: #059669 !important; border-bottom: 2px solid #059669 !important; font-weight: 700 !important; }
-[data-testid="stSlider"] [data-testid="stSliderThumb"] { background: #059669 !important; }
-[data-baseweb="select"] > div { background: #ffffff !important; border: 1px solid #d1d5db !important; border-radius: 8px !important; }
-[data-testid="stDataFrameResizable"] { border: 1px solid #e2e8f0 !important; border-radius: 10px !important; overflow: hidden !important; }
-hr { border-color: #e2e8f0 !important; margin: 12px 0 !important; }
-.cat-badge {
-    display: inline-block; padding: 2px 10px; border-radius: 99px;
-    font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
-    margin-bottom: 8px;
-}
-.cat-energy    { background:#d1fae5; color:#065f46; border:1px solid #6ee7b7; }
-.cat-storage   { background:#dbeafe; color:#1e3a8a; border:1px solid #93c5fd; }
-.cat-industrial{ background:#fef3c7; color:#92400e; border:1px solid #fcd34d; }
-.cat-transport { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
-.cat-carbon    { background:#fee2e2; color:#7f1d1d; border:1px solid #fca5a5; }
-.cat-building  { background:#f0fdf4; color:#14532d; border:1px solid #86efac; }
-.cat-circular  { background:#fdf4ff; color:#6b21a8; border:1px solid #d8b4fe; }
-.nav-group-label {
-    font-size: 0.58rem; font-weight: 700; color: #cbd5e1; text-transform: uppercase;
-    letter-spacing: 0.13em; padding: 10px 18px 3px 18px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# 
-# TECHNOLOGY DEFINITIONS (44 technologies)
-# 
-TECHNOLOGIES = [
-    "Solar PV", "Onshore Wind", "Offshore Wind (fixed foundation)", "Floating Offshore Wind",
-    "Concentrated Solar Power (CSP)", "Ocean / Tidal / Wave Energy", "Small Modular Reactors (SMR)",
-    "Enhanced Geothermal Systems (EGS)", "Green Hydrogen (electrolysis)",
-    "Battery Storage (grid-scale)", "Long-Duration Energy Storage (LDES)", "Smart Grid & Grid Modernization",
-    "HVDC Transmission", "Virtual Power Plants (VPP)",
-    "Low-carbon Steel & Cement", "Electric Arc Furnace (EAF)", "Green Aluminium", "Low-carbon Concrete",
-    "Green Fertilizer (low-carbon NH3)", "Hydrogen-based Chemicals", "Industrial Heat Pumps (high-temp)",
-    "Sustainable Aviation Fuel (SAF)", "HVO (Hydrotreated Vegetable Oil)", "E-kerosene (aviation e-fuel)",
-    "E-Ammonia (maritime fuel)", "E-Methanol (maritime fuel)", "E-diesel / E-methanol (road & ship)",
-    "Biogas (anaerobic digestion)", "Biomethane (upgraded to grid)", "Electric Vehicles (EVs)",
-    "Hydrogen Fuel Cells (heavy-duty)", "Electric Aviation (eVTOL/short-haul)", "Rail Electrification",
-    "Carbon Capture & Storage (CCUS)", "BECCS (Bioenergy + CCS)", "Direct Air Capture (DAC)",
-    "Waste-to-Energy + CCS", "Reforestation / REDD+ / NBS", "Blue Carbon (mangroves, seagrass)",
-    "Building Energy Efficiency / Retrofits",
-    "Advanced / Chemical Recycling", "Critical Minerals Processing (low-C)",
-    "Green Data Centers",
-]
-N = len(TECHNOLOGIES)
-
-TECH_CATEGORIES = [
-    "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
-    "Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation","Clean Energy Generation",
-    "Energy Storage & Grid","Energy Storage & Grid","Energy Storage & Grid","Energy Storage & Grid","Energy Storage & Grid",
-    "Industrial Decarbonisation","Industrial Decarbonisation","Industrial Decarbonisation","Industrial Decarbonisation",
-    "Industrial Decarbonisation","Industrial Decarbonisation","Industrial Decarbonisation",
-    "Transport & Fuels","Transport & Fuels","Transport & Fuels","Transport & Fuels","Transport & Fuels",
-    "Transport & Fuels","Transport & Fuels","Transport & Fuels","Transport & Fuels","Transport & Fuels",
-    "Transport & Fuels","Transport & Fuels",
-    "Carbon Removal & Nature","Carbon Removal & Nature","Carbon Removal & Nature","Carbon Removal & Nature",
-    "Carbon Removal & Nature","Carbon Removal & Nature",
-    "Building & Efficiency",
-    "Circular Economy","Circular Economy",
-    "Digital Infrastructure",
+# ============================================================================
+# DATA: 43 TECHNOLOGIES
+# ============================================================================
+TECH_NAMES = [
+    ("Solar PV", "PV & Wind Energy"),
+    ("Onshore Wind", "PV & Wind Energy"),
+    ("Offshore Wind", "PV & Wind Energy"),
+    ("Floating Offshore Wind", "PV & Wind Energy"),
+    ("Concentrated Solar Power", "PV & Wind Energy"),
+    ("Geothermal", "Renewables"),
+    ("Hydropower", "Renewables"),
+    ("Tidal & Wave", "Renewables"),
+    ("Green Hydrogen (electrolysis)", "Hydrogen & Derivatives"),
+    ("Battery Storage", "Storage & EVs"),
+    ("Long-Duration Storage", "Storage & EVs"),
+    ("EV Passenger Vehicles", "Storage & EVs"),
+    ("EV Commercial Vehicles", "Storage & EVs"),
+    ("EV Charging Infrastructure", "Storage & EVs"),
+    ("Sustainable Aviation Fuel (SAF)", "Sustainable Fuels"),
+    ("E-Kerosene", "Sustainable Fuels"),
+    ("Green Methanol", "Sustainable Fuels"),
+    ("Green Ammonia", "Sustainable Fuels"),
+    ("Biofuels (Advanced)", "Sustainable Fuels"),
+    ("Biogas / Biomethane", "Sustainable Fuels"),
+    ("Heat Pumps", "Heat & Buildings"),
+    ("Low-carbon Steel", "Industry Decarbonization"),
+    ("Low-carbon Cement", "Industry Decarbonization"),
+    ("Low-carbon Chemicals", "Industry Decarbonization"),
+    ("Low-carbon Aluminum", "Industry Decarbonization"),
+    ("Low-carbon Glass", "Industry Decarbonization"),
+    ("Low-carbon Paper & Pulp", "Industry Decarbonization"),
+    ("Industrial Heat Electrification", "Industry Decarbonization"),
+    ("Industrial Heat Pumps", "Industry Decarbonization"),
+    ("Building Energy Efficiency", "Heat & Buildings"),
+    ("Smart Grids", "Grid & Digital"),
+    ("Demand Response", "Grid & Digital"),
+    ("Transmission Expansion", "Grid & Digital"),
+    ("Carbon Capture & Storage (CCUS)", "CCUS & Removals"),
+    ("Bioenergy with CCS (BECCS)", "CCUS & Removals"),
+    ("Direct Air Capture (DAC)", "CCUS & Removals"),
+    ("Enhanced Weathering", "CCUS & Removals"),
+    ("Reforestation / REDD+", "Nature-Based Solutions"),
+    ("Blue Carbon (mangroves, seagrass)", "Nature-Based Solutions"),
+    ("Sustainable Agriculture", "Nature-Based Solutions"),
+    ("Carbon Offset / MRV Platforms", "Digital & Markets"),
+    ("Energy Management & Analytics", "Digital & Markets"),
+    ("Nuclear (SMR)", "Other Clean Energy"),
 ]
 
-CAT_STYLE = {
-    "Clean Energy Generation":    ("cat-energy",    ""),
-    "Energy Storage & Grid":      ("cat-storage",   ""),
-    "Industrial Decarbonisation": ("cat-industrial",""),
-    "Transport & Fuels":          ("cat-transport", ""),
-    "Carbon Removal & Nature":    ("cat-carbon",    ""),
-    "Building & Efficiency":      ("cat-building",  ""),
-    "Circular Economy":           ("cat-circular",  ""),
-    "Digital Infrastructure":     ("cat-storage",   ""),
-}
+# 43 × 14: annual_output, installed_capacity, capacity_factor, project_lifetime,
+# capex_per_kw, opex_pct, feedstock_cost, other_opex, wacc, market_price,
+# co2_abated_factor, learning_rate, cum_cap_now, cum_cap_2035
+TECH_DEFAULTS = np.array([
+    [500000,200,0.28,25,1100,0.015,0,500000,0.07,65,0.45,0.20,2000,8000],
+    [450000,200,0.28,25,1400,0.015,0,600000,0.07,65,0.45,0.15,900,4000],
+    [420000,200,0.40,25,3200,0.020,0,1000000,0.08,80,0.45,0.12,60,500],
+    [380000,150,0.40,25,4500,0.025,0,1200000,0.09,85,0.45,0.10,1,50],
+    [200000,100,0.40,30,5000,0.020,0,800000,0.08,90,0.45,0.08,5,80],
+    [50000,30,0.35,25,8000,0.030,0,500000,0.09,100,0.45,0.05,0.2,5],
+    [800000,300,0.90,60,8000,0.025,0,2000000,0.09,80,0.50,0.04,0.001,10],
+    [150000,50,0.90,30,6000,0.030,0,700000,0.08,90,0.45,0.06,0.01,5],
+    [50000,100,0.45,20,2500,0.025,8000000,2000000,0.09,4500,0.90,0.18,0.5,10],
+    [300000,150,0.25,15,1800,0.020,0,800000,0.08,90,0.30,0.22,1500,5000],
+    [100000,50,0.30,20,3500,0.025,0,600000,0.09,100,0.30,0.10,0.1,20],
+    [0,0,1.0,20,0,0.050,0,2000000,0.08,0,0.15,0.08,500,2000],
+    [0,0,1.0,30,0,0.020,0,3000000,0.08,0,0.10,0.05,10,100],
+    [0,0,1.0,15,0,0.060,0,1500000,0.08,0,0.15,0.12,50,500],
+    [250000,50,0.90,25,5000,0.040,5000000,2000000,0.10,700,0.80,0.06,0.1,2],
+    [300000,60,0.90,25,4000,0.035,4000000,1800000,0.10,650,0.75,0.08,0.05,1],
+    [150000,40,0.90,25,5500,0.040,3000000,1500000,0.10,2500,0.80,0.07,0.02,0.5],
+    [200000,50,0.90,25,4500,0.040,4000000,1800000,0.10,600,0.75,0.07,0.05,1],
+    [100000,80,0.90,20,3500,0.030,4000000,1500000,0.09,950,0.85,0.10,0.02,0.5],
+    [80000,60,0.90,20,4000,0.030,3500000,1200000,0.09,1200,0.80,0.09,0.01,0.3],
+    [200000,80,0.85,20,2000,0.025,1000000,800000,0.08,100,0.40,0.08,0.1,3],
+    [150000,80,0.85,20,3000,0.030,6000000,1500000,0.10,2800,0.70,0.12,0.05,0.5],
+    [100000,60,0.85,20,2500,0.028,5000000,1200000,0.09,1800,0.65,0.10,0.02,0.3],
+    [80000,60,0.85,20,4500,0.035,7000000,1500000,0.10,3500,0.75,0.08,0.005,0.1],
+    [60000,80,0.90,20,3500,0.030,4000000,1000000,0.09,950,0.85,0.10,0.01,0.2],
+    [50000,60,0.90,20,3200,0.030,3500000,900000,0.09,1300,0.75,0.10,0.01,0.2],
+    [60000,60,0.90,20,3000,0.028,3000000,900000,0.09,1100,0.70,0.10,0.01,0.2],
+    [80000,30,0.85,20,2000,0.028,2000000,700000,0.08,80,0.60,0.08,10,100],
+    [100000,40,0.85,20,2500,0.028,2500000,800000,0.08,90,0.60,0.08,5,50],
+    [0,0,1.0,10,0,0.050,0,500000,0.08,0,0.30,0.22,100,1000],
+    [0,0,1.0,15,0,0.060,1000000,800000,0.09,0,0.50,0.15,0.1,5],
+    [0,0,1.0,15,0,0.050,0,500000,0.09,0,0.40,0.18,0.001,1],
+    [0,0,1.0,40,0,0.020,0,2000000,0.07,0,0.35,0.05,50,200],
+    [100000,50,0.90,30,4000,0.035,2000000,1000000,0.10,80,0.85,0.08,0.03,0.5],
+    [120000,60,0.85,25,5000,0.040,3000000,1500000,0.09,150,0.90,0.07,0.01,0.2],
+    [50000,25,0.95,20,15000,0.050,3000000,2000000,0.10,500,1.00,0.15,0.001,1],
+    [80000,40,0.85,25,4500,0.040,2000000,1200000,0.09,100,0.80,0.07,0.01,0.2],
+    [80000,0,1.0,30,500,0.100,500000,300000,0.06,12,1.00,0.05,500,1000],
+    [30000,0,1.0,30,300,0.120,200000,100000,0.06,30,1.00,0.04,10,50],
+    [400000,0,1.0,20,800,0.050,0,1000000,0.07,100,0.40,0.08,5000,8000],
+    [100000,30,0.85,20,2000,0.040,2000000,800000,0.09,200,0.50,0.10,0.5,10],
+    [50000,20,0.85,20,3000,0.035,1000000,600000,0.09,500,0.40,0.08,0.1,2],
+    [200000,50,0.90,10,1500,0.050,0,1500000,0.08,80,0.20,0.10,50,500],
+])
 
-TECH_SHORT = [
-    "Solar PV","Onshore Wind","Offshore Wind","Float. Offshore","CSP","Ocean/Tidal","SMR","Geothermal","Green H₂",
-    "Battery Stor.","LDES","Smart Grid","HVDC","VPP",
-    "Steel/Cement","EAF","Green Al","Low-C Concrete","Green NH3","H₂ Chem","Ind. Heat Pump",
-    "SAF","HVO","E-kerosene","E-Ammonia","E-Methanol","E-diesel","Biogas","Biomethane","EVs","H₂ Fuel Cell","eVTOL","Rail Electrif.",
-    "CCUS","BECCS","DAC","W2E+CCS","Reforestation","Blue Carbon",
-    "Bldg Efficiency",
-    "Chem Recycling","Critical Min.",
-    "Green Data Ctr",
+DEFAULT_FIELDS = [
+    "annual_output","installed_capacity","capacity_factor","project_lifetime",
+    "capex_per_kw","opex_pct","feedstock_cost","other_opex","wacc","market_price",
+    "co2_abated_factor","learning_rate","cum_cap_now","cum_cap_2035",
 ]
 
-MBM_MATRIX = [
-    ('D','D',None,'D',None,'I',None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'I',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D','D','I','D','D',None,'D','D','D',None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('D','D',None,'D',None,None,None,None,'D',None,None),
-    ('I',None,None,None,None,None,None,None,'I',None,None),
-    ('I',None,None,None,None,None,None,None,None,None,None),
-    ('I',None,None,None,None,None,None,None,'I',None,None),
-    ('D','D',None,None,'D','D',None,None,'D','D',None),
-    ('D','D',None,None,'D','D',None,None,'D','D',None),
-    ('D','D',None,None,'D','D',None,None,'D',None,None),
-    ('D','D',None,None,'D','D',None,None,'D','D',None),
-    ('D','D',None,None,'D','D',None,None,'D',None,None),
-    ('D','D',None,None,'D','D',None,None,'D',None,None),
-    ('D','D',None,None,'D',None,None,None,'D',None,None),
-    ('D','D','D','D','D',None,'D',None,'D','D',None),
-    ('D','D','D',None,None,None,'D',None,'D',None,None),
-    ('D','D','D','D','D',None,'D',None,'D',None,None),
-    ('D','D','D',None,'D','I',None,'D','D',None,None),
-    ('D','D','D',None,'D',None,None,'D','D',None,None),
-    ('D','D','D',None,'D',None,None,'D','D',None,None),
-    ('D','D','D',None,None,None,None,None,'D',None,None),
-    ('D','D','D',None,None,None,None,None,'D',None,None),
-    ('D','D',None,None,None,None,None,None,None,None,'D'),
-    ('D','D',None,None,'D',None,None,None,'D',None,'D'),
-    ('D','D',None,None,None,None,'D',None,'D',None,None),
-    ('D','D',None,None,None,None,None,None,'D',None,None),
-    ('D','D',None,None,'D',None,None,None,'D','D',None),
-    ('D','D','D','D','D',None,None,None,'D','D',None),
-    ('D','D','I',None,'D',None,None,None,'D','D',None),
-    ('D','D',None,None,'D',None,None,None,'D',None,None),
-    ('D','I',None,None,None,None,'D',None,'D',None,None),
-    (None,None,None,None,None,None,'D',None,'D',None,None),
-    ('D','D',None,None,None,None,None,None,'D',None,None),
-    ('D','D',None,None,'D',None,None,None,'D',None,None),
-    ('D','D',None,None,None,'D',None,None,None,None,None),
-    ('D','D',None,None,None,None,None,None,'D',None,None),
-]
+TECHNOLOGIES = pd.DataFrame({
+    "id": range(len(TECH_NAMES)),
+    "name": [n[0] for n in TECH_NAMES],
+    "category": [n[1] for n in TECH_NAMES],
+    **{f: TECH_DEFAULTS[:, i] for i, f in enumerate(DEFAULT_FIELDS)},
+})
 
-MBM_MECH_NAMES = ["ETS","Carbon Tax","Fuel Mandate","CfD","CCfD","CBAM","CORSIA","IMO Levy","VCM/CDM","AMC","Feebate"]
+# ============================================================================
+# DATA: 11 MARKET-BASED MECHANISMS
+# ============================================================================
+MECH_ORDER = ["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]
+MECH_INDEX = {k: i for i, k in enumerate(MECH_ORDER)}
 
-# 
-# COUNTRY DATA FROM EXCEL (194 countries, Country Level sheet)
-# 
-COUNTRY_DATA_RAW = {"Afghanistan":{"region":"South Asia","iso3":"AFG","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Angola":{"region":"Southern Africa","iso3":"AGO","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Albania":{"region":"Southern Europe","iso3":"ALB","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Andorra":{"region":"Southern Europe","iso3":"AND","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"United Arab Emirates":{"region":"West Asia (Middle East)","iso3":"ARE","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Argentina":{"region":"South America","iso3":"ARG","techs":{"Solar PV":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D","VCM":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D","Fuel Mandate":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","Fuel Mandate":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D"},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Armenia":{"region":"West Asia (Middle East)","iso3":"ARM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Antigua and Barbuda":{"region":"Caribbean","iso3":"ATG","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Australia":{"region":"Australia & New Zealand","iso3":"AUS","techs":{"Solar PV":{"ETS":"D"},"Onshore Wind":{"ETS":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","VCM":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"ETS":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Austria":{"region":"Western Europe","iso3":"AUT","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I","Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Azerbaijan":{"region":"West Asia (Middle East)","iso3":"AZE","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Burundi":{"region":"East Africa","iso3":"BDI","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Belgium":{"region":"Western Europe","iso3":"BEL","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Benin":{"region":"West Africa","iso3":"BEN","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Burkina Faso":{"region":"West Africa","iso3":"BFA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bangladesh":{"region":"South Asia","iso3":"BGD","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bulgaria":{"region":"Eastern Europe","iso3":"BGR","techs":{"Solar PV":{"ETS":"D","CBAM":"I","VCM":"D"},"Onshore Wind":{"ETS":"D","CBAM":"I","VCM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I","VCM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I","VCM":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D","VCM":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Bahrain":{"region":"West Asia (Middle East)","iso3":"BHR","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bahamas":{"region":"Caribbean","iso3":"BHS","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bosnia and Herzegovina":{"region":"Southern Europe","iso3":"BIH","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Belarus":{"region":"Eastern Europe","iso3":"BLR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Belize":{"region":"Central America","iso3":"BLZ","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bolivia":{"region":"South America","iso3":"BOL","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Brazil":{"region":"South America","iso3":"BRA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D"},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Barbados":{"region":"Caribbean","iso3":"BRB","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Brunei Darussalam":{"region":"Southeast Asia","iso3":"BRN","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Bhutan":{"region":"South Asia","iso3":"BTN","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Botswana":{"region":"Southern Africa","iso3":"BWA","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Central African Republic":{"region":"Central Africa","iso3":"CAF","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Canada":{"region":"North America","iso3":"CAN","techs":{"Solar PV":{"ETS":"D"},"Onshore Wind":{"ETS":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","Fuel Mandate":"D","AMC":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CCfD":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CCfD":"I","AMC":"D"},"Green Aluminium":{"ETS":"D","CCfD":"I"},"Low-carbon Concrete":{"ETS":"I","VCM":"D","AMC":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D","CCfD":"I"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D","AMC":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Fuel Mandate":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","VCM":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"ETS":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","VCM":"D","AMC":"D"},"Direct Air Capture (DAC)":{"ETS":"D","AMC":"D"},"Waste-to-Energy + CCS":{"ETS":"D","CCfD":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Switzerland":{"region":"Western Europe","iso3":"CHE","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","AMC":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","AMC":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I","VCM":"D","AMC":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D","AMC":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"ETS":"I","Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","AMC":"D"},"Direct Air Capture (DAC)":{"ETS":"D","AMC":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Chile":{"region":"South America","iso3":"CHL","techs":{"Solar PV":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"China":{"region":"East Asia","iso3":"CHN","techs":{"Solar PV":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","VCM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I","VCM":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","VCM":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I","VCM":"D","CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","VCM":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Côte d’Ivoire":{"region":"West Africa","iso3":"CIV","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Cameroon":{"region":"Central Africa","iso3":"CMR","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Democratic Republic of the Congo":{"region":"Central Africa","iso3":"COD","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Republic of the Congo":{"region":"Central Africa","iso3":"COG","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Colombia":{"region":"South America","iso3":"COL","techs":{"Solar PV":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D","Fuel Mandate":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","Fuel Mandate":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I","VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Comoros":{"region":"East Africa","iso3":"COM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Cabo Verde":{"region":"West Africa","iso3":"CPV","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Costa Rica":{"region":"Central America","iso3":"CRI","techs":{"Solar PV":{},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Cuba":{"region":"Caribbean","iso3":"CUB","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Cyprus":{"region":"West Asia (Middle East)","iso3":"CYP","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Czech Republic":{"region":"Eastern Europe","iso3":"CZE","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Germany":{"region":"Western Europe","iso3":"DEU","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D","AMC":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CCfD":"D","CBAM":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CCfD":"I","CBAM":"D"},"Green Aluminium":{"ETS":"D","CCfD":"I","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","VCM":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CCfD":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","CCfD":"I"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I","Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Djibouti":{"region":"East Africa","iso3":"DJI","techs":{"Solar PV":{},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Dominica":{"region":"Caribbean","iso3":"DMA","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Denmark":{"region":"Northern Europe","iso3":"DNK","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D","VCM":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Dominican Republic":{"region":"Caribbean","iso3":"DOM","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Algeria":{"region":"North Africa","iso3":"DZA","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Ecuador":{"region":"South America","iso3":"ECU","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Egypt":{"region":"North Africa","iso3":"EGY","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Eritrea":{"region":"East Africa","iso3":"ERI","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Spain":{"region":"Southern Europe","iso3":"ESP","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","VCM":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Estonia":{"region":"Northern Europe","iso3":"EST","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Ethiopia":{"region":"East Africa","iso3":"ETH","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Finland":{"region":"Northern Europe","iso3":"FIN","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Fiji":{"region":"Melanesia","iso3":"FJI","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"France":{"region":"Western Europe","iso3":"FRA","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I","VCM":"D"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CCfD":"D","CBAM":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CCfD":"I","CBAM":"D","AMC":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CCfD":"I","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I","AMC":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CCfD":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D","CCfD":"I"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","AMC":"D"},"Direct Air Capture (DAC)":{"ETS":"D","AMC":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Micronesia":{"region":"Micronesia","iso3":"FSM","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Gabon":{"region":"Central Africa","iso3":"GAB","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"United Kingdom":{"region":"Western Europe","iso3":"GBR","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CfD":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CfD":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CfD":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CfD":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CfD":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D","AMC":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D","AMC":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","AMC":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D","AMC":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I","CfD":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"VCM":"D","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CfD":"D","AMC":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CfD":"D","AMC":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Georgia":{"region":"West Asia (Middle East)","iso3":"GEO","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Ghana":{"region":"West Africa","iso3":"GHA","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Guinea":{"region":"West Africa","iso3":"GIN","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Gambia":{"region":"West Africa","iso3":"GMB","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"GuineaBissau":{"region":"West Africa","iso3":"GNB","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Equatorial Guinea":{"region":"Central Africa","iso3":"GNQ","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Greece":{"region":"Southern Europe","iso3":"GRC","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Grenada":{"region":"Caribbean","iso3":"GRD","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Guatemala":{"region":"Central America","iso3":"GTM","techs":{"Solar PV":{},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Guyana":{"region":"South America","iso3":"GUY","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Honduras":{"region":"Central America","iso3":"HND","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Croatia":{"region":"Southern Europe","iso3":"HRV","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Haiti":{"region":"Caribbean","iso3":"HTI","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Hungary":{"region":"Eastern Europe","iso3":"HUN","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Indonesia":{"region":"Southeast Asia","iso3":"IDN","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{"VCM":"D"},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"India":{"region":"South Asia","iso3":"IND","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{"VCM":"D"},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{"VCM":"D"},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{"VCM":"D"},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D","CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"VCM":"D","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Ireland":{"region":"Western Europe","iso3":"IRL","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Iran":{"region":"West Asia (Middle East)","iso3":"IRN","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Iraq":{"region":"West Asia (Middle East)","iso3":"IRQ","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Iceland":{"region":"Northern Europe","iso3":"ISL","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I","VCM":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Israel":{"region":"West Asia (Middle East)","iso3":"ISR","techs":{"Solar PV":{"Carbon Tax":"D","CDM/PACM":"D"},"Onshore Wind":{"Carbon Tax":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Italy":{"region":"Southern Europe","iso3":"ITA","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"VCM":"D","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Jamaica":{"region":"Caribbean","iso3":"JAM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Jordan":{"region":"West Asia (Middle East)","iso3":"JOR","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Japan":{"region":"East Asia","iso3":"JPN","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","Carbon Tax":"I","Feebate":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Kazakhstan":{"region":"Central Asia","iso3":"KAZ","techs":{"Solar PV":{"ETS":"D","VCM":"D"},"Onshore Wind":{"ETS":"D","VCM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","VCM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"ETS":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Kenya":{"region":"East Africa","iso3":"KEN","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Kyrgyzstan":{"region":"Central Asia","iso3":"KGZ","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Cambodia":{"region":"Southeast Asia","iso3":"KHM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Kiribati":{"region":"Micronesia","iso3":"KIR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Saint Kitts and Nevis":{"region":"Caribbean","iso3":"KNA","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"South Korea":{"region":"East Asia","iso3":"KOR","techs":{"Solar PV":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","VCM":"D","Feebate":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I","VCM":"D"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Kuwait":{"region":"West Asia (Middle East)","iso3":"KWT","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Laos":{"region":"Southeast Asia","iso3":"LAO","techs":{"Solar PV":{},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Lebanon":{"region":"West Asia (Middle East)","iso3":"LBN","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Liberia":{"region":"West Africa","iso3":"LBR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Libya":{"region":"North Africa","iso3":"LBY","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Saint Lucia":{"region":"Caribbean","iso3":"LCA","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Liechtenstein":{"region":"Western Europe","iso3":"LIE","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Sri Lanka":{"region":"South Asia","iso3":"LKA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Lesotho":{"region":"Southern Africa","iso3":"LSO","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Lithuania":{"region":"Northern Europe","iso3":"LTU","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Luxembourg":{"region":"Western Europe","iso3":"LUX","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Latvia":{"region":"Northern Europe","iso3":"LVA","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Morocco":{"region":"North Africa","iso3":"MAR","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Monaco":{"region":"Western Europe","iso3":"MCO","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Moldova":{"region":"Eastern Europe","iso3":"MDA","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Madagascar":{"region":"Southern Africa","iso3":"MDG","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Maldives":{"region":"South Asia","iso3":"MDV","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mexico":{"region":"North America","iso3":"MEX","techs":{"Solar PV":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","VCM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Marshall Islands":{"region":"Micronesia","iso3":"MHL","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"North Macedonia":{"region":"Southern Europe","iso3":"MKD","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mali":{"region":"West Africa","iso3":"MLI","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Malta":{"region":"Southern Europe","iso3":"MLT","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Myanmar":{"region":"Southeast Asia","iso3":"MMR","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Montenegro":{"region":"Southern Europe","iso3":"MNE","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mongolia":{"region":"East Asia","iso3":"MNG","techs":{"Solar PV":{},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mozambique":{"region":"Southern Africa","iso3":"MOZ","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mauritania":{"region":"West Africa","iso3":"MRT","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Mauritius":{"region":"East Africa","iso3":"MUS","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Malawi":{"region":"Southern Africa","iso3":"MWI","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{"VCM":"D"},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Malaysia":{"region":"Southeast Asia","iso3":"MYS","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Namibia":{"region":"Southern Africa","iso3":"NAM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Niger":{"region":"West Africa","iso3":"NER","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Nigeria":{"region":"West Africa","iso3":"NGA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Nicaragua":{"region":"Central America","iso3":"NIC","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Netherlands":{"region":"Western Europe","iso3":"NLD","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D","CCfD":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D","CCfD":"D"},"Electric Vehicles (EVs)":{"Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Norway":{"region":"Northern Europe","iso3":"NOR","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D","AMC":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Nepal":{"region":"South Asia","iso3":"NPL","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{"VCM":"D"},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Nauru":{"region":"Micronesia","iso3":"NRU","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"New Zealand":{"region":"Australia & New Zealand","iso3":"NZL","techs":{"Solar PV":{"ETS":"D"},"Onshore Wind":{"ETS":"D","VCM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","Feebate":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I","VCM":"D"},"Carbon Capture & Storage (CCUS)":{"ETS":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Oman":{"region":"West Asia (Middle East)","iso3":"OMN","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Pakistan":{"region":"South Asia","iso3":"PAK","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"VCM":"D","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Panama":{"region":"Central America","iso3":"PAN","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Peru":{"region":"South America","iso3":"PER","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Philippines":{"region":"Southeast Asia","iso3":"PHL","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Palau":{"region":"Micronesia","iso3":"PLW","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Papua New Guinea":{"region":"Melanesia","iso3":"PNG","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Poland":{"region":"Eastern Europe","iso3":"POL","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"North Korea":{"region":"East Asia","iso3":"PRK","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Portugal":{"region":"Southern Europe","iso3":"PRT","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I","VCM":"D"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Paraguay":{"region":"South America","iso3":"PRY","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Palestine":{"region":"West Asia (Middle East)","iso3":"PSE","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Qatar":{"region":"West Asia (Middle East)","iso3":"QAT","techs":{"Solar PV":{"CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Romania":{"region":"Eastern Europe","iso3":"ROU","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I","VCM":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Russia":{"region":"Eastern Europe","iso3":"RUS","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Rwanda":{"region":"East Africa","iso3":"RWA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Saudi Arabia":{"region":"West Asia (Middle East)","iso3":"SAU","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Sudan":{"region":"North Africa","iso3":"SDN","techs":{"Solar PV":{},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Senegal":{"region":"West Africa","iso3":"SEN","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Singapore":{"region":"Southeast Asia","iso3":"SGP","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I","VCM":"D"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D","Feebate":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Solomon Islands":{"region":"Melanesia","iso3":"SLB","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Sierra Leone":{"region":"West Africa","iso3":"SLE","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"El Salvador":{"region":"Central America","iso3":"SLV","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"San Marino":{"region":"Southern Europe","iso3":"SMR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Somalia":{"region":"East Africa","iso3":"SOM","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Serbia":{"region":"Southern Europe","iso3":"SRB","techs":{"Solar PV":{},"Onshore Wind":{"CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"South Sudan":{"region":"East Africa","iso3":"SSD","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"São Tomé and Príncipe":{"region":"Central Africa","iso3":"STP","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Suriname":{"region":"South America","iso3":"SUR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Slovakia":{"region":"Eastern Europe","iso3":"SVK","techs":{"Solar PV":{"ETS":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Slovenia":{"region":"Southern Europe","iso3":"SVN","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I","CCfD":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","CCfD":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Sweden":{"region":"Northern Europe","iso3":"SWE","techs":{"Solar PV":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Onshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Offshore Wind (fixed foundation)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Floating Offshore Wind":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Concentrated Solar Power (CSP)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Ocean / Tidal / Wave Energy":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Small Modular Reactors (SMR)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D","Carbon Tax":"D","CBAM":"I"},"Green Hydrogen (electrolysis)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Battery Storage (grid-scale)":{"ETS":"I","Carbon Tax":"I","CBAM":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I","Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"ETS":"I","Carbon Tax":"I"},"HVDC Transmission":{"ETS":"I","Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"ETS":"I","Carbon Tax":"I"},"Low-carbon Steel & Cement":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Green Aluminium":{"ETS":"D","Carbon Tax":"D","CBAM":"D"},"Low-carbon Concrete":{"ETS":"I","Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D","Carbon Tax":"I","CBAM":"D"},"Hydrogen-based Chemicals":{"ETS":"D","Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I","Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Carbon Tax":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Carbon Tax":"I","IMO Levy":"I","Feebate":"D"},"Biogas (anaerobic digestion)":{"ETS":"I"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"Carbon Tax":"I","Feebate":"D","Incentives and Subsidies":"D"},"Hydrogen Fuel Cells":{"ETS":"D","Incentives and Subsidies":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"Incentives and Subsidies":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D"},"Direct Air Capture (DAC)":{"ETS":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I"},"Building Energy Efficiency / Retrofits":{"ETS":"D","Carbon Tax":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I","Carbon Tax":"I"}}},"Eswatini":{"region":"Southern Africa","iso3":"SWZ","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Seychelles":{"region":"East Africa","iso3":"SYC","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Syria":{"region":"West Asia (Middle East)","iso3":"SYR","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Chad":{"region":"Central Africa","iso3":"TCD","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Togo":{"region":"West Africa","iso3":"TGO","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Thailand":{"region":"Southeast Asia","iso3":"THA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Tajikistan":{"region":"Central Asia","iso3":"TJK","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Turkmenistan":{"region":"Central Asia","iso3":"TKM","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"TimorLeste":{"region":"Southeast Asia","iso3":"TLS","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Tonga":{"region":"Polynesia","iso3":"TON","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Trinidad and Tobago":{"region":"Caribbean","iso3":"TTO","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Tunisia":{"region":"North Africa","iso3":"TUN","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Tuvalu":{"region":"Polynesia","iso3":"TUV","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Tanzania":{"region":"East Africa","iso3":"TZA","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"VCM":"D"},"Building Energy Efficiency / Retrofits":{"VCM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Uganda":{"region":"East Africa","iso3":"UGA","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"CDM/PACM":"D"},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Ukraine":{"region":"Eastern Europe","iso3":"UKR","techs":{"Solar PV":{"Carbon Tax":"D"},"Onshore Wind":{"Carbon Tax":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Uruguay":{"region":"South America","iso3":"URY","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Carbon Tax":"I","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Carbon Tax":"I","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Carbon Tax":"I","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"Carbon Tax":"I"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"United States":{"region":"North America","iso3":"USA","techs":{"Solar PV":{"ETS":"D","VCM":"D"},"Onshore Wind":{"ETS":"D","VCM":"D"},"Offshore Wind (fixed foundation)":{"ETS":"D"},"Floating Offshore Wind":{"ETS":"D"},"Concentrated Solar Power (CSP)":{"ETS":"D","VCM":"D"},"Ocean / Tidal / Wave Energy":{"ETS":"D"},"Small Modular Reactors (SMR)":{"ETS":"D"},"Enhanced Geothermal Systems (EGS)":{"ETS":"D"},"Green Hydrogen (electrolysis)":{"ETS":"D","Fuel Mandate":"D","AMC":"D"},"Battery Storage (grid-scale)":{"ETS":"I"},"Long-Duration Energy Storage (LDES)":{"ETS":"I"},"Smart Grid & Grid Modernization":{"ETS":"I"},"HVDC Transmission":{"ETS":"I"},"Virtual Power Plants (VPP)":{"ETS":"I"},"Low-carbon Steel & Cement":{"ETS":"D","VCM":"D","AMC":"D"},"Electric Arc Furnace (EAF)":{"ETS":"D"},"Green Aluminium":{"ETS":"D"},"Low-carbon Concrete":{"ETS":"I","VCM":"D"},"Green Fertilizer (low-carbon NH3)":{"ETS":"D"},"Hydrogen-based Chemicals":{"ETS":"D"},"Industrial Heat Pumps (high-temp)":{"ETS":"I"},"Sustainable Aviation Fuel (SAF)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"ETS":"I","Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"ETS":"D","Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-Methanol (maritime fuel)":{"ETS":"D","IMO Levy":"D"},"E-diesel  (road & ship)":{"ETS":"D","Fuel Mandate":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"ETS":"I","VCM":"D"},"Biomethane (upgraded to grid)":{"ETS":"D"},"Electric Vehicles (EVs)":{"ETS":"D","VCM":"D"},"Hydrogen Fuel Cells":{"ETS":"D"},"Electric Aviation (eVTOL/short-haul)":{"ETS":"I","CORSIA":"I"},"Rail Electrification":{"ETS":"I"},"Carbon Capture & Storage (CCUS)":{"ETS":"D","CCfD":"D","VCM":"D"},"BECCS (Bioenergy + CCS)":{"ETS":"D","CCfD":"D","VCM":"D"},"Direct Air Capture (DAC)":{"ETS":"D","CCfD":"D"},"Waste-to-Energy + CCS":{"ETS":"D"},"Reforestation / REDD+ / NBS":{"ETS":"D","VCM":"D"},"Blue Carbon (mangroves, seagrass)":{"ETS":"I","VCM":"D"},"Building Energy Efficiency / Retrofits":{"ETS":"D","VCM":"D"},"Advanced / Chemical Recycling":{"ETS":"I"},"Critical Minerals Processing (low-C)":{"ETS":"D"},"Green Data Centers":{"ETS":"I"}}},"Uzbekistan":{"region":"Central Asia","iso3":"UZB","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{"VCM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{"CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Vatican City":{"region":"Southern Europe","iso3":"VAT","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{},"HVO (Hydrotreated Vegetable Oil)":{"IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Saint Vincent and the Grenadines":{"region":"Caribbean","iso3":"VCT","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Venezuela":{"region":"South America","iso3":"VEN","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Vietnam":{"region":"Southeast Asia","iso3":"VNM","techs":{"Solar PV":{"VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Fuel Mandate":"D"},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{"VCM":"D"},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{"VCM":"D"},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"Fuel Mandate":"D","CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"Fuel Mandate":"D","CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"Fuel Mandate":"D","CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"Fuel Mandate":"D","IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D","CDM/PACM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Vanuatu":{"region":"Melanesia","iso3":"VUT","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Samoa":{"region":"Polynesia","iso3":"WSM","techs":{"Solar PV":{},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Yemen":{"region":"West Asia (Middle East)","iso3":"YEM","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{"VCM":"D"},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"South Africa":{"region":"Southern Africa","iso3":"ZAF","techs":{"Solar PV":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Onshore Wind":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Offshore Wind (fixed foundation)":{"Carbon Tax":"D"},"Floating Offshore Wind":{"Carbon Tax":"D"},"Concentrated Solar Power (CSP)":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Ocean / Tidal / Wave Energy":{"Carbon Tax":"D"},"Small Modular Reactors (SMR)":{"Carbon Tax":"D"},"Enhanced Geothermal Systems (EGS)":{"Carbon Tax":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{"Carbon Tax":"D"},"Battery Storage (grid-scale)":{"Carbon Tax":"I"},"Long-Duration Energy Storage (LDES)":{"Carbon Tax":"I"},"Smart Grid & Grid Modernization":{"Carbon Tax":"I"},"HVDC Transmission":{"Carbon Tax":"I"},"Virtual Power Plants (VPP)":{"Carbon Tax":"I"},"Low-carbon Steel & Cement":{"Carbon Tax":"D"},"Electric Arc Furnace (EAF)":{"Carbon Tax":"D"},"Green Aluminium":{"Carbon Tax":"D"},"Low-carbon Concrete":{"Carbon Tax":"I"},"Green Fertilizer (low-carbon NH3)":{"Carbon Tax":"I"},"Hydrogen-based Chemicals":{"Carbon Tax":"D"},"Industrial Heat Pumps (high-temp)":{"Carbon Tax":"D"},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{"VCM":"D"},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{"VCM":"D"},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{"VCM":"D"},"Carbon Capture & Storage (CCUS)":{"Carbon Tax":"I","VCM":"D","CDM/PACM":"D"},"BECCS (Bioenergy + CCS)":{"VCM":"D"},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"Carbon Tax":"D","VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{"Carbon Tax":"I"}}},"Zambia":{"region":"Southern Africa","iso3":"ZMB","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D","CDM/PACM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}},"Zimbabwe":{"region":"Southern Africa","iso3":"ZWE","techs":{"Solar PV":{"VCM":"D"},"Onshore Wind":{},"Offshore Wind (fixed foundation)":{},"Floating Offshore Wind":{},"Concentrated Solar Power (CSP)":{},"Ocean / Tidal / Wave Energy":{},"Small Modular Reactors (SMR)":{},"Enhanced Geothermal Systems (EGS)":{"VCM":"D"},"Green Hydrogen (electrolysis)":{},"Battery Storage (grid-scale)":{},"Long-Duration Energy Storage (LDES)":{},"Smart Grid & Grid Modernization":{},"HVDC Transmission":{},"Virtual Power Plants (VPP)":{},"Low-carbon Steel & Cement":{},"Electric Arc Furnace (EAF)":{},"Green Aluminium":{},"Low-carbon Concrete":{},"Green Fertilizer (low-carbon NH3)":{},"Hydrogen-based Chemicals":{},"Industrial Heat Pumps (high-temp)":{},"Sustainable Aviation Fuel (SAF)":{"CORSIA":"D"},"HVO (Hydrotreated Vegetable Oil)":{"CORSIA":"I","IMO Levy":"I"},"E-kerosene (aviation e-fuel)":{"CORSIA":"D"},"E-Ammonia (maritime fuel)":{"IMO Levy":"D"},"E-Methanol (maritime fuel)":{"IMO Levy":"D"},"E-diesel  (road & ship)":{"IMO Levy":"I"},"Biogas (anaerobic digestion)":{},"Biomethane (upgraded to grid)":{},"Electric Vehicles (EVs)":{},"Hydrogen Fuel Cells":{},"Electric Aviation (eVTOL/short-haul)":{"CORSIA":"I"},"Rail Electrification":{},"Carbon Capture & Storage (CCUS)":{},"BECCS (Bioenergy + CCS)":{},"Direct Air Capture (DAC)":{},"Waste-to-Energy + CCS":{},"Reforestation / REDD+ / NBS":{"VCM":"D"},"Blue Carbon (mangroves, seagrass)":{},"Building Energy Efficiency / Retrofits":{"VCM":"D","CDM/PACM":"D"},"Advanced / Chemical Recycling":{},"Critical Minerals Processing (low-C)":{},"Green Data Centers":{}}}}
-# Country lat/lon for map
-COUNTRY_COORDS = {
-    "Afghanistan": (33.93, 67.71), "Albania": (41.15, 20.17), "Algeria": (28.03, 1.66),
-    "Andorra": (42.55, 1.60), "Angola": (11.20, 17.87), "Antigua and Barbuda": (17.06, -61.80),
-    "Argentina": (-38.42, -63.62), "Armenia": (40.07, 45.04), "Australia": (-25.27, 133.78),
-    "Austria": (47.52, 14.55), "Azerbaijan": (40.14, 47.58), "Bahamas": (25.03, -77.40),
-    "Bahrain": (26.00, 50.55), "Bangladesh": (23.68, 90.36), "Barbados": (13.19, -59.54),
-    "Belarus": (53.71, 27.95), "Belgium": (50.50, 4.47), "Belize": (17.19, -88.50),
-    "Benin": (9.31, 2.32), "Bhutan": (27.51, 90.43), "Bolivia": (-16.29, -63.59),
-    "Bosnia and Herzegovina": (43.92, 17.68), "Botswana": (-22.33, 24.68),
-    "Brazil": (-14.24, -51.93), "Brunei": (4.54, 114.73), "Bulgaria": (42.73, 25.49),
-    "Burkina Faso": (12.36, -1.54), "Burundi": (-3.37, 29.92), "Cambodia": (12.57, 104.99),
-    "Cameroon": (3.85, 11.50), "Canada": (56.13, -106.35), "Cape Verde": (16.54, -23.04),
-    "Central African Republic": (6.61, 20.94), "Chad": (15.45, 18.73), "Chile": (-35.68, -71.54),
-    "China": (35.86, 104.20), "Colombia": (4.57, -74.30), "Comoros": (-11.88, 43.87),
-    "Congo": (-0.23, 15.83), "Costa Rica": (9.75, -83.75), "Croatia": (45.10, 15.20),
-    "Cuba": (21.52, -77.78), "Cyprus": (35.13, 33.43), "Czech Republic": (49.82, 15.47),
-    "DR Congo": (-4.04, 21.76), "Denmark": (56.26, 9.50), "Djibouti": (11.83, 42.59),
-    "Dominica": (15.41, -61.37), "Dominican Republic": (18.74, -70.16), "Ecuador": (-1.83, -78.18),
-    "Egypt": (26.82, 30.80), "El Salvador": (13.79, -88.90), "Equatorial Guinea": (1.65, 10.27),
-    "Eritrea": (15.18, 39.78), "Estonia": (58.60, 25.01), "Eswatini": (-26.52, 31.47),
-    "Ethiopia": (9.15, 40.49), "Fiji": (-17.71, 178.07), "Finland": (61.92, 25.75),
-    "France": (46.23, 2.21), "Gabon": (-0.80, 11.61), "Gambia": (13.44, -15.31),
-    "Georgia": (42.32, 43.36), "Germany": (51.17, 10.45), "Ghana": (7.95, -1.02),
-    "Greece": (39.07, 21.82), "Grenada": (12.12, -61.68), "Guatemala": (15.78, -90.23),
-    "Guinea": (9.95, -9.70), "Guinea-Bissau": (11.80, -15.18), "Guyana": (4.86, -58.93),
-    "Haiti": (18.97, -72.29), "Honduras": (15.20, -86.24), "Hungary": (47.16, 19.50),
-    "Iceland": (64.96, -19.02), "India": (20.59, 78.96), "Indonesia": (-0.79, 113.92),
-    "Iran": (32.43, 53.69), "Iraq": (33.22, 43.68), "Ireland": (53.41, -8.24),
-    "Israel": (31.05, 34.85), "Italy": (41.87, 12.57), "Jamaica": (18.11, -77.30),
-    "Japan": (36.20, 138.25), "Jordan": (30.59, 36.24), "Kazakhstan": (48.02, 66.92),
-    "Kenya": (-0.02, 37.91), "Kiribati": (1.87, -157.36), "Kuwait": (29.31, 47.48),
-    "Kyrgyzstan": (41.20, 74.77), "Laos": (19.86, 102.50), "Latvia": (56.88, 24.60),
-    "Lebanon": (33.85, 35.86), "Lesotho": (-29.61, 28.23), "Liberia": (6.43, -9.43),
-    "Libya": (26.34, 17.23), "Liechtenstein": (47.14, 9.55), "Lithuania": (55.17, 23.88),
-    "Luxembourg": (49.82, 6.13), "Madagascar": (-18.77, 46.87), "Malawi": (-13.25, 34.30),
-    "Malaysia": (4.21, 101.98), "Maldives": (3.20, 73.22), "Mali": (17.57, -3.99),
-    "Malta": (35.94, 14.37), "Marshall Islands": (7.13, 171.18), "Mauritania": (21.01, -10.94),
-    "Mauritius": (-20.35, 57.55), "Mexico": (23.63, -102.55), "Micronesia": (7.43, 150.55),
-    "Moldova": (47.41, 28.37), "Monaco": (43.73, 7.40), "Mongolia": (46.86, 103.85),
-    "Montenegro": (42.71, 19.37), "Morocco": (31.79, -7.09), "Mozambique": (-18.67, 35.53),
-    "Myanmar": (21.92, 95.96), "Namibia": (-22.96, 18.49), "Nauru": (-0.52, 166.93),
-    "Nepal": (28.39, 84.12), "Netherlands": (52.13, 5.29), "New Zealand": (-40.90, 174.89),
-    "Nicaragua": (12.87, -85.21), "Niger": (17.61, 8.08), "Nigeria": (9.08, 8.68),
-    "North Korea": (40.34, 127.51), "North Macedonia": (41.61, 21.75), "Norway": (60.47, 8.47),
-    "Oman": (21.51, 55.92), "Pakistan": (30.38, 69.35), "Palau": (7.51, 134.58),
-    "Panama": (8.54, -80.78), "Papua New Guinea": (-6.31, 143.96), "Paraguay": (-23.44, -58.44),
-    "Peru": (-9.19, -75.02), "Philippines": (12.88, 121.77), "Poland": (51.92, 19.15),
-    "Portugal": (39.40, -8.22), "Qatar": (25.35, 51.18), "Romania": (45.94, 24.97),
-    "Russia": (61.52, 105.32), "Rwanda": (-1.94, 29.87), "Saint Kitts and Nevis": (17.36, -62.78),
-    "Saint Lucia": (13.91, -60.98), "Saint Vincent and the Grenadines": (13.25, -61.20),
-    "Samoa": (-13.76, -172.10), "San Marino": (43.94, 12.46), "Sao Tome and Principe": (0.19, 6.61),
-    "Saudi Arabia": (23.89, 45.08), "Senegal": (14.50, -14.45), "Serbia": (44.02, 21.01),
-    "Seychelles": (-4.68, 55.49), "Sierra Leone": (8.46, -11.78), "Singapore": (1.35, 103.82),
-    "Slovakia": (48.67, 19.70), "Slovenia": (46.15, 14.99), "Solomon Islands": (-9.65, 160.16),
-    "Somalia": (5.15, 46.20), "South Africa": (-30.56, 22.94), "South Korea": (35.91, 127.77),
-    "South Sudan": (6.88, 31.31), "Spain": (40.46, -3.75), "Sri Lanka": (7.87, 80.77),
-    "Sudan": (12.86, 30.22), "Suriname": (3.92, -56.03), "Sweden": (60.13, 18.64),
-    "Switzerland": (46.82, 8.23), "Syria": (34.80, 38.99), "Taiwan": (23.70, 120.96),
-    "Tajikistan": (38.86, 71.28), "Tanzania": (-6.37, 34.89), "Thailand": (15.87, 100.99),
-    "Timor-Leste": (-8.87, 125.73), "Togo": (8.62, 0.82), "Tonga": (-21.18, -175.20),
-    "Trinidad and Tobago": (10.69, -61.22), "Tunisia": (33.89, 9.54), "Turkey": (38.96, 35.24),
-    "Turkmenistan": (38.97, 59.56), "Tuvalu": (-7.11, 177.65), "Uganda": (1.37, 32.29),
-    "Ukraine": (48.38, 31.17), "United Arab Emirates": (23.42, 53.85),
-    "United Kingdom": (55.38, -3.44), "United States": (37.09, -95.71), "Uruguay": (-32.52, -55.77),
-    "Uzbekistan": (41.38, 64.59), "Vanuatu": (-15.38, 166.96), "Venezuela": (6.42, -66.59),
-    "Vietnam": (14.06, 108.28), "Yemen": (15.55, 48.52), "Zambia": (-13.13, 27.85),
-    "Zimbabwe": (-19.02, 29.15),
-}
+MECHANISMS = pd.DataFrame([
+    {"id":"ets","short":"ETS","full":"ETS (Emission Trading Schemes)","unit":"USD/tCO₂e","type":"Direct","category":"Carbon Pricing","countries":68},
+    {"id":"ctax","short":"Carbon Tax","full":"Carbon Tax","unit":"USD/tCO₂e","type":"Direct","category":"Carbon Pricing","countries":52},
+    {"id":"cbam","short":"CBAM","full":"CBAM (Carbon Border Adjustment)","unit":"USD/tCO₂e","type":"Indirect","category":"Carbon Pricing","countries":31},
+    {"id":"fuel","short":"Fuel Mandate","full":"Fuel Mandates / Standards","unit":"USD/MWh","type":"Indirect","category":"Regulatory Mandates","countries":28},
+    {"id":"cfd","short":"CfD","full":"CfD / CCfD","unit":"USD/MWh","type":"Direct","category":"Market Mechanisms","countries":41},
+    {"id":"ccfd","short":"CCfD","full":"Carbon CfD","unit":"USD/tCO₂e","type":"Direct","category":"Market Mechanisms","countries":18},
+    {"id":"vcm","short":"VCM","full":"VCM / CDM","unit":"USD/tCO₂e","type":"Indirect","category":"Market Mechanisms","countries":47},
+    {"id":"amc","short":"AMC","full":"AMC (Advanced Market Commitments)","unit":"USD/unit","type":"Indirect","category":"Incentives & Support","countries":15},
+    {"id":"feebate","short":"Feebate","full":"Feebate Programs","unit":"USD/tCO₂e","type":"Indirect","category":"Others","countries":9},
+    {"id":"imo","short":"IMO Levy","full":"IMO Levy (Maritime)","unit":"USD/tCO₂e","type":"Indirect","category":"Others","countries":22},
+    {"id":"corsia","short":"CORSIA","full":"CORSIA (Aviation)","unit":"USD/tCO₂e","type":"Indirect","category":"Others","countries":50},
+])
 
-# 
-# DEFAULT PARAMETERS per technology (44 techs)
-# 
-def make_defaults():
-    d = {k: [0]*N for k in ["annual_output","installed_capacity","project_lifetime","capex_per_kw","feedstock_cost","other_opex","market_price"]}
-    d.update({k: [0.0]*N for k in ["capacity_factor","opex_pct","wacc","co2_abated_factor","learning_rate","cum_cap_now","cum_cap_2035"]})
-    vals = [
-        (500000,200,0.28,25,1100,0.015,0,500000,0.07,65,0.45,0.20,2000,8000),
-        (450000,200,0.28,25,1400,0.015,0,600000,0.07,65,0.45,0.15,900,4000),
-        (420000,200,0.40,25,3200,0.020,0,1000000,0.08,80,0.45,0.12,60,500),
-        (380000,150,0.40,25,4500,0.025,0,1200000,0.09,85,0.45,0.10,1,50),
-        (200000,100,0.40,30,5000,0.020,0,800000,0.08,90,0.45,0.08,5,80),
-        (50000,30,0.35,25,8000,0.030,0,500000,0.09,100,0.45,0.05,0.2,5),
-        (800000,300,0.90,60,8000,0.025,0,2000000,0.09,80,0.50,0.04,0.001,10),
-        (150000,50,0.90,30,6000,0.030,0,700000,0.08,90,0.45,0.06,0.01,5),
-        (50000,100,0.45,20,2500,0.025,8000000,2000000,0.09,4500,0.90,0.18,0.5,10),
-        (300000,150,0.25,15,1800,0.020,0,800000,0.08,90,0.30,0.22,1500,5000),
-        (100000,50,0.30,20,3500,0.025,0,600000,0.09,100,0.30,0.10,0.1,20),
-        (0,0,1.0,20,0,0.050,0,2000000,0.08,0,0.15,0.08,500,2000),
-        (0,0,1.0,30,0,0.020,0,3000000,0.08,0,0.10,0.05,10,100),
-        (0,0,1.0,15,0,0.060,0,1500000,0.08,0,0.15,0.12,50,500),
-        (250000,50,0.90,25,5000,0.040,5000000,2000000,0.10,700,0.80,0.06,0.1,2),
-        (300000,60,0.90,25,4000,0.035,4000000,1800000,0.10,650,0.75,0.08,0.05,1),
-        (150000,40,0.90,25,5500,0.040,3000000,1500000,0.10,2500,0.80,0.07,0.02,0.5),
-        (200000,50,0.90,25,4500,0.040,4000000,1800000,0.10,600,0.75,0.07,0.05,1),
-        (100000,80,0.90,20,3500,0.030,4000000,1500000,0.09,950,0.85,0.10,0.02,0.5),
-        (80000,60,0.90,20,4000,0.030,3500000,1200000,0.09,1200,0.80,0.09,0.01,0.3),
-        (200000,80,0.85,20,2000,0.025,1000000,800000,0.08,100,0.40,0.08,0.1,3),
-        (150000,80,0.85,20,3000,0.030,6000000,1500000,0.10,2800,0.70,0.12,0.05,0.5),
-        (100000,60,0.85,20,2500,0.028,5000000,1200000,0.09,1800,0.65,0.10,0.02,0.3),
-        (80000,60,0.85,20,4500,0.035,7000000,1500000,0.10,3500,0.75,0.08,0.005,0.1),
-        (60000,80,0.90,20,3500,0.030,4000000,1000000,0.09,950,0.85,0.10,0.01,0.2),
-        (50000,60,0.90,20,3200,0.030,3500000,900000,0.09,1300,0.75,0.10,0.01,0.2),
-        (60000,60,0.90,20,3000,0.028,3000000,900000,0.09,1100,0.70,0.10,0.01,0.2),
-        (80000,30,0.85,20,2000,0.028,2000000,700000,0.08,80,0.60,0.08,10,100),
-        (100000,40,0.85,20,2500,0.028,2500000,800000,0.08,90,0.60,0.08,5,50),
-        (0,0,1.0,10,0,0.050,0,500000,0.08,0,0.30,0.22,100,1000),
-        (0,0,1.0,15,0,0.060,1000000,800000,0.09,0,0.50,0.15,0.1,5),
-        (0,0,1.0,15,0,0.050,0,500000,0.09,0,0.40,0.18,0.001,1),
-        (0,0,1.0,40,0,0.020,0,2000000,0.07,0,0.35,0.05,50,200),
-        (100000,50,0.90,30,4000,0.035,2000000,1000000,0.10,80,0.85,0.08,0.03,0.5),
-        (120000,60,0.85,25,5000,0.040,3000000,1500000,0.09,150,0.90,0.07,0.01,0.2),
-        (50000,25,0.95,20,15000,0.050,3000000,2000000,0.10,500,1.00,0.15,0.001,1),
-        (80000,40,0.85,25,4500,0.040,2000000,1200000,0.09,100,0.80,0.07,0.01,0.2),
-        (80000,0,1.0,30,500,0.100,500000,300000,0.06,12,1.00,0.05,500,1000),
-        (30000,0,1.0,30,300,0.120,200000,100000,0.06,30,1.00,0.04,10,50),
-        (400000,0,1.0,20,800,0.050,0,1000000,0.07,100,0.40,0.08,5000,8000),
-        (100000,30,0.85,20,2000,0.040,2000000,800000,0.09,200,0.50,0.10,0.5,10),
-        (50000,20,0.85,20,3000,0.035,1000000,600000,0.09,500,0.40,0.08,0.1,2),
-        (200000,50,0.90,10,1500,0.050,0,1500000,0.08,80,0.20,0.10,50,500),
-    ]
-    for i, v in enumerate(vals):
-        d["annual_output"][i]=v[0]; d["installed_capacity"][i]=v[1]; d["capacity_factor"][i]=v[2]
-        d["project_lifetime"][i]=v[3]; d["capex_per_kw"][i]=v[4]; d["opex_pct"][i]=v[5]
-        d["feedstock_cost"][i]=v[6]; d["other_opex"][i]=v[7]; d["wacc"][i]=v[8]
-        d["market_price"][i]=v[9]; d["co2_abated_factor"][i]=v[10]; d["learning_rate"][i]=v[11]
-        d["cum_cap_now"][i]=v[12]; d["cum_cap_2035"][i]=v[13]
-    return d
+def _row(*keys):
+    s = set(keys)
+    return [k in s for k in MECH_ORDER]
 
-DEFAULTS = make_defaults()
+MBM_MATRIX = np.array([
+    _row("ets","ctax","cfd","vcm","feebate"),
+    _row("ets","ctax","cfd","vcm","feebate"),
+    _row("ets","ctax","cfd","vcm","feebate"),
+    _row("ets","ctax","cfd","vcm","amc"),
+    _row("ets","ctax","cfd","vcm"),
+    _row("ets","ctax","cfd","vcm"),
+    _row("ets","ctax","cfd","vcm"),
+    _row("ets","ctax","cfd","vcm","amc"),
+    _row("ets","ctax","fuel","ccfd","cbam","amc","imo"),
+    _row("ets","ctax","cfd","vcm","feebate"),
+    _row("ets","ctax","cfd","vcm","amc"),
+    _row("ets","ctax","feebate","vcm"),
+    _row("ets","ctax","feebate","vcm","imo"),
+    _row("ets","ctax","feebate"),
+    _row("fuel","corsia","vcm","amc","ccfd"),
+    _row("fuel","corsia","vcm","amc","ccfd"),
+    _row("fuel","imo","vcm","amc","ccfd"),
+    _row("fuel","imo","vcm","amc","ccfd"),
+    _row("fuel","vcm","feebate"),
+    _row("fuel","vcm","feebate"),
+    _row("ets","ctax","feebate"),
+    _row("ets","ctax","cbam","ccfd","vcm"),
+    _row("ets","ctax","cbam","ccfd","vcm"),
+    _row("ets","ctax","cbam","ccfd","vcm"),
+    _row("ets","ctax","cbam","ccfd","vcm"),
+    _row("ets","ctax","cbam","ccfd"),
+    _row("ets","ctax","ccfd"),
+    _row("ets","ctax","ccfd","feebate"),
+    _row("ets","ctax","ccfd","feebate"),
+    _row("ets","ctax","feebate"),
+    _row("cfd","feebate"),
+    _row("cfd","feebate"),
+    _row("cfd","amc"),
+    _row("ets","ctax","cbam","ccfd","vcm","amc"),
+    _row("ets","ctax","vcm","amc","ccfd"),
+    _row("vcm","amc","ccfd"),
+    _row("vcm","amc"),
+    _row("vcm","amc"),
+    _row("vcm","amc"),
+    _row("vcm","amc","feebate"),
+    _row("vcm","amc"),
+    _row("feebate","vcm"),
+    _row("ets","ctax","cfd","amc"),
+])
 
-# Initialize session-state technology inputs only after DEFAULTS exists.
-if "ti" not in st.session_state:
-    st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
-if "tidraft" not in st.session_state:
-    st.session_state.tidraft = {k: list(v) for k, v in DEFAULTS.items()}
-ti = st.session_state.ti
-td = st.session_state.tidraft
-
-# 
-# REAL CARBON PRICES FROM COUNTRY LEVEL DATA (USD/tCO2e)
-# Source: carbon pricing instruments data
-# 
-REAL_CARBON_PRICES = {
-    # Carbon Taxes
-    "Albania": {"ctax": 13.7}, "Andorra": {"ctax": 32.4}, "Argentina": {"ctax": 5.3},
-    "Chile": {"ctax": 5.0}, "Colombia": {"ctax": 6.5}, "Denmark": {"ctax": 108.4},
-    "Estonia": {"ctax": 27.0}, "Finland": {"ctax": 66.9}, "France": {"ctax": 48.1},
-    "Hungary": {"ctax": 38.8}, "Iceland": {"ctax": 60.1}, "Ireland": {"ctax": 68.5},
-    "Israel": {"ctax": 1.5}, "Japan": {"ctax": 1.9}, "Latvia": {"ctax": 16.2},
-    "Liechtenstein": {"ctax": 136.0}, "Luxembourg": {"ctax": 58.5}, "Mexico": {"ctax": 3.9},
-    "Netherlands": {"ctax": 94.8}, "Norway": {"ctax": 133.9}, "Poland": {"ctax": 0.1},
-    "Portugal": {"ctax": 72.7}, "Singapore": {"ctax": 18.6}, "Slovenia": {"ctax": 33.3},
-    "South Africa": {"ctax": 12.8}, "Spain": {"ctax": 16.2}, "Sweden": {"ctax": 144.6},
-    "Switzerland": {"ctax": 136.0}, "Ukraine": {"ctax": 0.7}, "Uruguay": {"ctax": 158.8},
-    "United Kingdom": {"ctax": 23.2},
-    # ETS prices
-    "Alberta (Canada)": {"ets": 66.2}, "Australia": {"ets": 21.8}, "Austria": {"ets": 48.5},
-    "Belgium": {"ets": 66.2}, "British Columbia": {"ets": 66.2}, "China": {"ets": 11.8},
-    "Canada": {"ets": 66.2}, "California (US)": {"ets": 29.3},
-    "European Union": {"ets": 70.4}, "Germany": {"ets": 48.5},
-    "Indonesia": {"ets": 0.7}, "Kazakhstan": {"ets": 0.9}, "South Korea": {"ets": 6.5},
-    "Massachusetts (US)": {"ets": 9.3}, "Montenegro": {"ets": 25.9},
-    "New Brunswick (Canada)": {"ets": 66.2}, "New Zealand": {"ets": 32.0},
-    "Newfoundland (Canada)": {"ets": 66.2}, "Nova Scotia (Canada)": {"ets": 66.2},
-    "Ontario (Canada)": {"ets": 66.2}, "Quebec (Canada)": {"ets": 41.5},
-    "Regional GHG Initiative": {"ets": 23.3}, "Saitama (Japan)": {"ets": 1.0},
-    "Shanghai": {"ets": 10.8}, "Shenzhen": {"ets": 6.5}, "Tokyo": {"ets": 4.0},
-    "United Kingdom ETS": {"ets": 57.2}, "Washington (US)": {"ets": 50.0},
-}
-
-# Map countries to their best carbon price
+# ============================================================================
+# DATA: 184 COUNTRIES (name, iso3, region, gdp_weight_proxy)
+# ============================================================================
 COUNTRY_CARBON_PRICES = {
-    "Albania": 13.7, "Andorra": 32.4, "Argentina": 5.3, "Australia": 21.8,
-    "Austria": 48.5, "Belgium": 66.2, "Canada": 66.2, "Chile": 5.0,
-    "China": 11.8, "Colombia": 6.5, "Denmark": 108.4, "Estonia": 27.0,
-    "Finland": 66.9, "France": 48.1, "Germany": 48.5, "Hungary": 38.8,
-    "Iceland": 60.1, "Indonesia": 0.7, "Ireland": 68.5, "Israel": 1.5,
-    "Japan": 1.9, "Kazakhstan": 0.9, "Latvia": 16.2, "Liechtenstein": 136.0,
-    "Luxembourg": 58.5, "Mexico": 3.9, "Montenegro": 25.9, "Netherlands": 94.8,
-    "New Zealand": 32.0, "Norway": 133.9, "Poland": 0.1, "Portugal": 72.7,
-    "Singapore": 18.6, "Slovenia": 33.3, "South Africa": 12.8, "South Korea": 6.5,
-    "Spain": 16.2, "Sweden": 144.6, "Switzerland": 136.0, "Ukraine": 0.7,
-    "United Kingdom": 57.2, "United States": 29.3, "Uruguay": 158.8,
+    "Albania":13.7,"Andorra":32.4,"Argentina":5.3,"Australia":21.8,"Austria":48.5,
+    "Belgium":66.2,"Canada":66.2,"Chile":5.0,"China":11.8,"Colombia":6.5,
+    "Denmark":108.4,"Estonia":27.0,"Finland":66.9,"France":48.1,"Germany":48.5,
+    "Hungary":38.8,"Iceland":60.1,"Indonesia":0.7,"Ireland":68.5,"Israel":1.5,
+    "Japan":1.9,"Kazakhstan":0.9,"Latvia":16.2,"Liechtenstein":136.0,"Luxembourg":58.5,
+    "Mexico":3.9,"Montenegro":25.9,"Netherlands":94.8,"New Zealand":32.0,"Norway":133.9,
+    "Poland":0.1,"Portugal":72.7,"Singapore":18.6,"Slovenia":33.3,"South Africa":12.8,
+    "South Korea":6.5,"Spain":16.2,"Sweden":144.6,"Switzerland":136.0,"Ukraine":0.7,
+    "United Kingdom":57.2,"United States":29.3,"Uruguay":158.8,
 }
 
+RAW_COUNTRIES = [
+    ("United States","USA","North America",24.7),("China","CHN","Asia",17.7),("Japan","JPN","Asia",4.2),
+    ("Germany","DEU","Europe",4.1),("India","IND","Asia",3.5),("United Kingdom","GBR","Europe",3.1),
+    ("France","FRA","Europe",2.8),("Italy","ITA","Europe",2.0),("Canada","CAN","North America",2.0),
+    ("Brazil","BRA","South America",1.9),("Russia","RUS","Europe",1.9),("South Korea","KOR","Asia",1.7),
+    ("Australia","AUS","Oceania",1.5),("Spain","ESP","Europe",1.4),("Mexico","MEX","North America",1.4),
+    ("Indonesia","IDN","Asia",1.3),("Netherlands","NLD","Europe",1.0),("Saudi Arabia","SAU","Asia",1.0),
+    ("Turkey","TUR","Asia",0.9),("Switzerland","CHE","Europe",0.9),("Taiwan","TWN","Asia",0.8),
+    ("Poland","POL","Europe",0.8),("Belgium","BEL","Europe",0.6),("Sweden","SWE","Europe",0.6),
+    ("Argentina","ARG","South America",0.6),("Ireland","IRL","Europe",0.5),("Norway","NOR","Europe",0.5),
+    ("Israel","ISR","Asia",0.5),("Thailand","THA","Asia",0.5),("Nigeria","NGA","Africa",0.5),
+    ("Egypt","EGY","Africa",0.5),("Austria","AUT","Europe",0.5),("United Arab Emirates","ARE","Asia",0.5),
+    ("Bangladesh","BGD","Asia",0.4),("Singapore","SGP","Asia",0.4),("Vietnam","VNM","Asia",0.4),
+    ("Malaysia","MYS","Asia",0.4),("Philippines","PHL","Asia",0.4),("Denmark","DNK","Europe",0.4),
+    ("South Africa","ZAF","Africa",0.4),("Hong Kong","HKG","Asia",0.4),("Pakistan","PAK","Asia",0.4),
+    ("Colombia","COL","South America",0.3),("Chile","CHL","South America",0.3),("Romania","ROU","Europe",0.3),
+    ("Czech Republic","CZE","Europe",0.3),("Finland","FIN","Europe",0.3),("Iraq","IRQ","Asia",0.3),
+    ("Portugal","PRT","Europe",0.3),("Peru","PER","South America",0.2),("Greece","GRC","Europe",0.2),
+    ("New Zealand","NZL","Oceania",0.2),("Qatar","QAT","Asia",0.2),("Kazakhstan","KAZ","Asia",0.2),
+    ("Hungary","HUN","Europe",0.2),("Algeria","DZA","Africa",0.2),("Kuwait","KWT","Asia",0.2),
+    ("Ukraine","UKR","Europe",0.2),("Morocco","MAR","Africa",0.2),("Ethiopia","ETH","Africa",0.1),
+    ("Slovakia","SVK","Europe",0.1),("Ecuador","ECU","South America",0.1),("Dominican Republic","DOM","North America",0.1),
+    ("Kenya","KEN","Africa",0.1),("Angola","AGO","Africa",0.1),("Oman","OMN","Asia",0.1),
+    ("Guatemala","GTM","North America",0.1),("Bulgaria","BGR","Europe",0.1),("Venezuela","VEN","South America",0.1),
+    ("Luxembourg","LUX","Europe",0.1),("Croatia","HRV","Europe",0.1),("Tanzania","TZA","Africa",0.1),
+    ("Panama","PAN","North America",0.1),("Belarus","BLR","Europe",0.1),("Côte d'Ivoire","CIV","Africa",0.1),
+    ("Ghana","GHA","Africa",0.1),("Costa Rica","CRI","North America",0.1),("Lithuania","LTU","Europe",0.1),
+    ("Uruguay","URY","South America",0.1),("Tunisia","TUN","Africa",0.1),("Sri Lanka","LKA","Asia",0.1),
+    ("Slovenia","SVN","Europe",0.1),("Serbia","SRB","Europe",0.1),("Myanmar","MMR","Asia",0.1),
+    ("Azerbaijan","AZE","Asia",0.1),("Jordan","JOR","Asia",0.1),("Bahrain","BHR","Asia",0.1),
+    ("Cameroon","CMR","Africa",0.05),("Bolivia","BOL","South America",0.05),("Paraguay","PRY","South America",0.05),
+    ("Latvia","LVA","Europe",0.05),("Uganda","UGA","Africa",0.05),("Estonia","EST","Europe",0.05),
+    ("Nepal","NPL","Asia",0.05),("Cyprus","CYP","Europe",0.05),("Honduras","HND","North America",0.05),
+    ("El Salvador","SLV","North America",0.05),("Iceland","ISL","Europe",0.05),("Cambodia","KHM","Asia",0.05),
+    ("Senegal","SEN","Africa",0.05),("Trinidad and Tobago","TTO","South America",0.05),("Papua New Guinea","PNG","Oceania",0.05),
+    ("Bosnia and Herzegovina","BIH","Europe",0.05),("Zambia","ZMB","Africa",0.04),("Georgia","GEO","Asia",0.04),
+    ("Mali","MLI","Africa",0.04),("Burkina Faso","BFA","Africa",0.04),("Botswana","BWA","Africa",0.04),
+    ("Gabon","GAB","Africa",0.04),("Mozambique","MOZ","Africa",0.04),("Albania","ALB","Europe",0.04),
+    ("Madagascar","MDG","Africa",0.04),("Mongolia","MNG","Asia",0.04),("Armenia","ARM","Asia",0.04),
+    ("Brunei","BRN","Asia",0.04),("Jamaica","JAM","North America",0.04),("North Macedonia","MKD","Europe",0.04),
+    ("Mauritius","MUS","Africa",0.04),("Malta","MLT","Europe",0.04),("Namibia","NAM","Africa",0.03),
+    ("Moldova","MDA","Europe",0.03),("Niger","NER","Africa",0.03),("Equatorial Guinea","GNQ","Africa",0.03),
+    ("Bahamas","BHS","North America",0.03),("Republic of the Congo","COG","Africa",0.03),("Rwanda","RWA","Africa",0.03),
+    ("Tajikistan","TJK","Asia",0.03),("Kyrgyzstan","KGZ","Asia",0.03),("Iran","IRN","Asia",0.4),
+    ("Syria","SYR","Asia",0.03),("Yemen","YEM","Asia",0.03),("Sudan","SDN","Africa",0.03),
+    ("South Sudan","SSD","Africa",0.02),("Zimbabwe","ZWE","Africa",0.03),("Malawi","MWI","Africa",0.02),
+    ("Afghanistan","AFG","Asia",0.02),("Haiti","HTI","North America",0.02),("Benin","BEN","Africa",0.02),
+    ("Laos","LAO","Asia",0.02),("Nicaragua","NIC","North America",0.02),("Kosovo","XKX","Europe",0.02),
+    ("Mauritania","MRT","Africa",0.02),("Togo","TGO","Africa",0.02),("Sierra Leone","SLE","Africa",0.02),
+    ("Eswatini","SWZ","Africa",0.02),("Liechtenstein","LIE","Europe",0.02),("Andorra","AND","Europe",0.02),
+    ("Monaco","MCO","Europe",0.02),("Liberia","LBR","Africa",0.02),("Burundi","BDI","Africa",0.02),
+    ("Guyana","GUY","South America",0.02),("Maldives","MDV","Asia",0.02),("Lesotho","LSO","Africa",0.02),
+    ("Suriname","SUR","South America",0.02),("Cape Verde","CPV","Africa",0.02),("Bhutan","BTN","Asia",0.02),
+    ("Belize","BLZ","North America",0.02),("Djibouti","DJI","Africa",0.02),("Central African Republic","CAF","Africa",0.02),
+    ("Eritrea","ERI","Africa",0.02),("Antigua and Barbuda","ATG","North America",0.01),("Seychelles","SYC","Africa",0.01),
+    ("Saint Lucia","LCA","North America",0.01),("Timor-Leste","TLS","Asia",0.01),("Guinea-Bissau","GNB","Africa",0.01),
+    ("Solomon Islands","SLB","Oceania",0.01),("Comoros","COM","Africa",0.01),("Grenada","GRD","North America",0.01),
+    ("Vanuatu","VUT","Oceania",0.01),("Saint Kitts and Nevis","KNA","North America",0.01),("Samoa","WSM","Oceania",0.01),
+    ("Saint Vincent and the Grenadines","VCT","North America",0.01),("Dominica","DMA","North America",0.01),
+    ("Tonga","TON","Oceania",0.01),("São Tomé and Príncipe","STP","Africa",0.01),("Micronesia","FSM","Oceania",0.01),
+    ("Palau","PLW","Oceania",0.01),("Marshall Islands","MHL","Oceania",0.01),("Kiribati","KIR","Oceania",0.01),
+    ("Nauru","NRU","Oceania",0.01),("Tuvalu","TUV","Oceania",0.01),("San Marino","SMR","Europe",0.01),
+    ("Vatican City","VAT","Europe",0.01),("Fiji","FJI","Oceania",0.02),("Cuba","CUB","North America",0.05),
+    ("North Korea","PRK","Asia",0.05),("Lebanon","LBN","Asia",0.05),("Libya","LBY","Africa",0.1),
+    ("Turkmenistan","TKM","Asia",0.1),("Uzbekistan","UZB","Asia",0.1),("DR Congo","COD","Africa",0.05),
+    ("Chad","TCD","Africa",0.04),("Somalia","SOM","Africa",0.02),("Guinea","GIN","Africa",0.04),
+]
+
+def _elec(iso3: str) -> float:
+    h = 0
+    for ch in iso3:
+        h = (h * 31 + ord(ch)) & 0xFFFF
+    return 40 + (h % 90)
+
+_total_w = sum(r[3] for r in RAW_COUNTRIES)
+COUNTRIES = pd.DataFrame([
+    {
+        "name": n, "iso3": iso, "region": reg,
+        "carbon_price": COUNTRY_CARBON_PRICES.get(n, 0.0),
+        "weight": w / _total_w,
+        "electricity_price": _elec(iso),
+    }
+    for (n, iso, reg, w) in RAW_COUNTRIES
+])
+
+# ============================================================================
+# DATA: PRICING & SCENARIOS
+# ============================================================================
 DEFAULT_PRICES = {
-    "ets": 70, "ctax": 50, "fuel": 240, "cfd_strike": 120, "cfd_ref": 80,
-    "ccfd_strike": 100, "ccfd_ref": 60,
-    "cbam": 55, "corsia": 22, "imo": 380, "vcm": 100, "amc": 100,
-    "feebate": 50, "electricity": 60, "gas": 8, "biomass": 40,
+    "ets":70,"ctax":50,"fuel":240,"cfd_strike":120,"cfd_ref":80,
+    "ccfd_strike":100,"ccfd_ref":60,"cbam":55,"corsia":22,"imo":380,
+    "vcm":100,"amc":100,"feebate":50,"electricity":60,"gas":8,"biomass":40,
+    "cfd":120,"ccfd":100,
 }
 
-MBM_LABELS = {
-    "ets":   ("ETS / Carbon Market",  "USD/tCO₂e"),
-    "ctax":  ("Carbon Tax",           "USD/tCO₂e"),
-    "fuel":  ("Fuel Mandate",         "USD/MWh"),
-    "cfd":   ("CfD",                  "USD/MWh"),
-    "ccfd":  ("CCfD",                 "USD/tCO₂e"),
-    "cbam":  ("CBAM Import",          "USD/tCO₂e"),
-    "corsia":("CORSIA Credit",        "USD/tCO₂e"),
-    "imo":   ("IMO Levy",             "USD/tCO₂e"),
-    "vcm":   ("VCM / CDM Credit",     "USD/tCO₂e"),
-    "amc":   ("AMC",                  "USD/unit"),
-    "feebate":("Feebate",             "USD/tCO₂e"),
+GBM_PARAMS = {
+    "ets":    (0.04,0.22,10,250),"ctax":(0.05,0.18,5,200),"fuel":(0.03,0.15,50,800),
+    "cfd":    (0.02,0.12,50,400),"ccfd":(0.03,0.14,30,300),"cbam":(0.04,0.20,10,200),
+    "corsia": (0.05,0.25,5,150), "imo": (0.04,0.20,100,800),"vcm":(0.06,0.30,2,200),
+    "amc":    (0.02,0.10,20,500),"feebate":(0.03,0.15,10,200),
 }
 
-# 
-# HELPERS
-# 
-GREENS = ["#064e3b","#065f46","#047857","#059669","#10b981","#34d399","#6ee7b7","#a7f3d0","#d1fae5","#ecfdf5","#f0fdf4"]
+SCENARIO_MULT = {
+    "current":  {k:1.0 for k in MECH_ORDER},
+    "net_zero": {"ets":1.85,"ctax":1.7,"cbam":1.6,"fuel":1.4,"cfd":1.25,"ccfd":1.4,"corsia":1.5,"imo":1.6,"vcm":1.4,"amc":1.5,"feebate":1.3},
+    "worst":    {"ets":0.45,"ctax":0.4,"cbam":0.3,"fuel":0.7,"cfd":0.8,"ccfd":0.6,"corsia":0.5,"imo":0.4,"vcm":0.5,"amc":0.6,"feebate":0.4},
+}
 
-# ─────────────────────────────────────────────────────────────────
+SCENARIO_LABEL = {"current":"Current Mechanisms","net_zero":"Net-Zero Aligned","worst":"Worst Case"}
+
+def prices_for_scenario(scenario: str) -> dict:
+    out = dict(DEFAULT_PRICES)
+    for k, m in SCENARIO_MULT[scenario].items():
+        out[k] = DEFAULT_PRICES.get(k, 0) * m
+    return out
+
+# ============================================================================
 # MONTE CARLO ENGINE
-# ─────────────────────────────────────────────────────────────────
-import numpy as np
+# ============================================================================
+Y_MECHS = ["cfd","ccfd","amc","feebate"]
+X_MECHS = ["ets","ctax","fuel","cbam","corsia","imo","vcm"]
 
-# Calibrated GBM parameters per MBM mechanism
-# (mu=annual drift, sigma=annual vol, floor, cap) — all in USD/tCO2e or USD/unit
-MODEL_PRICE_FORECASTS = {
-    "ets":    {"mu": 0.04,  "sigma": 0.22, "floor": 10,  "cap": 250},
-    "ctax":   {"mu": 0.05,  "sigma": 0.18, "floor": 5,   "cap": 200},
-    "fuel":   {"mu": 0.03,  "sigma": 0.15, "floor": 50,  "cap": 800},
-    "cfd":    {"mu": 0.02,  "sigma": 0.12, "floor": 50,  "cap": 400},
-    "ccfd":   {"mu": 0.03,  "sigma": 0.14, "floor": 30,  "cap": 300},
-    "cbam":   {"mu": 0.04,  "sigma": 0.20, "floor": 10,  "cap": 200},
-    "corsia": {"mu": 0.05,  "sigma": 0.25, "floor": 5,   "cap": 150},
-    "imo":    {"mu": 0.04,  "sigma": 0.20, "floor": 100, "cap": 800},
-    "vcm":    {"mu": 0.06,  "sigma": 0.30, "floor": 2,   "cap": 200},
-    "amc":    {"mu": 0.02,  "sigma": 0.10, "floor": 20,  "cap": 500},
-    "feebate":{"mu": 0.03,  "sigma": 0.15, "floor": 10,  "cap": 200},
-}
-
-def generate_price_paths(base_prices, n_years, n_sims=500, seed=42):
-    """GBM price paths for all 11 MBM mechanisms. Returns dict of {mech: ndarray (n_sims x n_years)}."""
-    rng = np.random.default_rng(seed)
+def generate_price_paths(base: dict, n_years: int, n_sims: int, rng: np.random.Generator) -> dict:
     paths = {}
-    keys = ["ets","ctax","fuel","cfd","ccfd","cbam","corsia","imo","vcm","amc","feebate"]
-    for k in keys:
-        p = MODEL_PRICE_FORECASTS[k]
-        S0 = base_prices.get(k, 0)
-        mu, sig = p["mu"], p["sigma"]
-        fl, cap = p["floor"], p["cap"]
-        dt = 1.0
-        Z = rng.standard_normal((n_sims, n_years))
-        log_ret = (mu - 0.5*sig**2)*dt + sig*np.sqrt(dt)*Z
-        price_path = S0 * np.exp(np.cumsum(log_ret, axis=1))
-        price_path = np.clip(price_path, fl, cap)
-        paths[k] = price_path
+    for k in MECH_ORDER:
+        mu, sigma, floor, cap = GBM_PARAMS[k]
+        S0 = base.get(k, 0)
+        if S0 <= 0:
+            paths[k] = np.zeros((n_sims, n_years))
+            continue
+        drift = mu - 0.5 * sigma * sigma
+        shocks = rng.standard_normal((n_sims, n_years)) * sigma + drift
+        log_cum = np.cumsum(shocks, axis=1)
+        prices = S0 * np.exp(log_cum)
+        paths[k] = np.clip(prices, floor, cap)
     return paths
 
-def compute_mc_revenue(t, ti, base_prices, n_sims=500, seed=42):
-    """Run MC simulation → NPV distribution (MBM-only) for technology t."""
-    lt   = ti["project_lifetime"][t]
-    ck   = ti["installed_capacity"][t] * 1000
-    cap  = ck * ti["capex_per_kw"][t]
-    w    = ti["wacc"][t]
-    ac   = cap * calc_crf(w, lt)
-    fo   = cap * ti["opex_pct"][t]
-    tc   = ac + fo + ti["feedstock_cost"][t] + ti["other_opex"][t]
-    o    = ti["annual_output"][t]
-    co2  = o * ti["co2_abated_factor"][t]
 
-    paths = generate_price_paths(base_prices, lt, n_sims=n_sims, seed=seed)
-    # shape: (n_sims, lt)
-    def m(mi, active_val, calc_fn):
-        return calc_fn(paths) if MBM_MATRIX[t][mi] is not None else np.zeros((n_sims, lt))
+def run_monte_carlo(tech_id: int, base_prices: dict, n_sims: int = 5000, seed: int = 42, scale: float = 1.0, years: int | None = None) -> dict:
+    d = TECHNOLOGIES.iloc[tech_id]
+    lt = int(years if years else d["project_lifetime"])
+    o = d["annual_output"] * scale
+    co2 = o * d["co2_abated_factor"]
+    mech_row = MBM_MATRIX[tech_id]
+    rng = np.random.default_rng(seed + tech_id * 1000 + int(scale * 10000))
 
-    e_p   = paths["ets"]   * co2 if MBM_MATRIX[t][0]  and co2>0 else np.zeros((n_sims,lt))
-    cx_p  = paths["ctax"]  * co2 if MBM_MATRIX[t][1]  and co2>0 else np.zeros((n_sims,lt))
-    fu_p  = paths["fuel"]  * o * 0.85 if MBM_MATRIX[t][2]  and o>0   else np.zeros((n_sims,lt))
-    cf_p  = (np.maximum(0, paths["cfd"] - base_prices.get("cfd_ref",80)) * o * 0.5) if MBM_MATRIX[t][3] and o>0 else np.zeros((n_sims,lt))
-    ccf_p = (np.maximum(0, paths["ccfd"] - base_prices.get("ccfd_ref",60)) * co2 * 0.5) if MBM_MATRIX[t][4] and co2>0 else np.zeros((n_sims,lt))
-    cb_p  = paths["cbam"]   * co2 * 0.85 if MBM_MATRIX[t][5] and co2>0 else np.zeros((n_sims,lt))
-    co_p  = paths["corsia"] * co2 * 1.05 if MBM_MATRIX[t][6] and co2>0 else np.zeros((n_sims,lt))
-    im_p  = paths["imo"]    * co2 * 0.95 if MBM_MATRIX[t][7] and co2>0 else np.zeros((n_sims,lt))
-    v_p   = paths["vcm"]    * co2        if MBM_MATRIX[t][8] and co2>0 else np.zeros((n_sims,lt))
-    am_p  = (paths["amc"] * (o/1000) * 0.5) if MBM_MATRIX[t][9] and o>0 else np.zeros((n_sims,lt))
-    fb_p  = paths["feebate"] * co2 * 0.5 if MBM_MATRIX[t][10] and co2>0 else np.zeros((n_sims,lt))
+    paths = generate_price_paths(base_prices, lt, n_sims, rng)
 
-    mb_annual = e_p + cx_p + fu_p + cf_p + ccf_p + cb_p + co_p + im_p + v_p + am_p + fb_p  # (n_sims, lt)
+    def on(m): return mech_row[MECH_INDEX[m]]
+    cfd_ref = base_prices["cfd_ref"]
+    ccfd_ref = base_prices["ccfd_ref"]
 
-    # Discount each year
-    disc = np.array([(1+w)**yr for yr in range(1, lt+1)])  # (lt,)
-    pv_mb = mb_annual / disc[np.newaxis, :]                # (n_sims, lt)
-    npv_sims = -cap + pv_mb.sum(axis=1) - tc * sum(1/(1+w)**y for y in range(1, lt+1))
+    x_annual = np.zeros((n_sims, lt))
+    if co2 > 0:
+        if on("ets"):    x_annual += paths["ets"] * co2
+        if on("ctax"):   x_annual += paths["ctax"] * co2
+        if on("cbam"):   x_annual += paths["cbam"] * co2 * 0.85
+        if on("corsia"): x_annual += paths["corsia"] * co2 * 1.05
+        if on("imo"):    x_annual += paths["imo"] * co2 * 0.95
+        if on("vcm"):    x_annual += paths["vcm"] * co2
+    if o > 0 and on("fuel"):
+        x_annual += paths["fuel"] * o * 0.85
+
+    y_annual = np.zeros((n_sims, lt))
+    if o > 0 and on("cfd"):
+        v = np.clip(paths["cfd"] - cfd_ref, 0, None)
+        y_annual += v * o * 0.5
+    if co2 > 0 and on("ccfd"):
+        v = np.clip(paths["ccfd"] - ccfd_ref, 0, None)
+        y_annual += v * co2 * 0.5
+    if o > 0 and on("amc"):
+        y_annual += paths["amc"] * (o / 1000) * 0.5
+    if co2 > 0 and on("feebate"):
+        y_annual += paths["feebate"] * co2 * 0.5
+
+    y_life = y_annual.sum(axis=1)
+    x_life = x_annual.sum(axis=1)
+    total = y_life + x_life
+    annual_p50 = np.median(y_annual + x_annual, axis=0)
 
     return {
-        "npv_p10":        float(np.percentile(npv_sims, 10)),
-        "npv_p50":        float(np.percentile(npv_sims, 50)),
-        "npv_p90":        float(np.percentile(npv_sims, 90)),
-        "npv_mean":       float(npv_sims.mean()),
-        "npv_std":        float(npv_sims.std()),
-        "prob_positive":  float((npv_sims > 0).mean()),
-        "npv_distribution": npv_sims.tolist(),
-        "mbm_p10":  mb_annual.sum(axis=1).min() / 1e6,
-        "mbm_p50":  float(np.percentile(mb_annual.sum(axis=1), 50)) / 1e6,
-        "mbm_p90":  mb_annual.sum(axis=1).max() / 1e6,
-        "mb_annual_p10": (np.percentile(mb_annual, 10, axis=0) / 1e6).tolist(),
-        "mb_annual_p50": (np.percentile(mb_annual, 50, axis=0) / 1e6).tolist(),
-        "mb_annual_p90": (np.percentile(mb_annual, 90, axis=0) / 1e6).tolist(),
+        "total_p5": np.percentile(total, 5),
+        "total_p10": np.percentile(total, 10),
+        "total_p50": np.percentile(total, 50),
+        "total_p90": np.percentile(total, 90),
+        "total_p95": np.percentile(total, 95),
+        "total_mean": total.mean(),
+        "total_std": total.std(),
+        "y_p5": np.percentile(y_life, 5), "y_p50": np.percentile(y_life, 50), "y_p95": np.percentile(y_life, 95),
+        "x_p5": np.percentile(x_life, 5), "x_p50": np.percentile(x_life, 50), "x_p95": np.percentile(x_life, 95),
+        "annual_path_p50": annual_p50,
+        "y_samples": y_life, "x_samples": x_life, "total_samples": total,
+        "prob_positive": (total > 0).mean(),
+        "lifetime_years": lt,
     }
 
+# ============================================================================
+# VIABILITY
+# ============================================================================
+def compute_vi(total_p50, total_p5, total_p95, total_mean, total_std, green_premium, conv_cost):
+    denom = max(1, green_premium * conv_cost)
+    cv = total_std / total_mean if total_mean > 0 else 1
+    return {
+        "vi_p50": total_p50 / denom,
+        "vi_p5": total_p5 / denom,
+        "vi_p95": total_p95 / denom,
+        "break_even_gp": total_p50 / max(1, conv_cost),
+        "confidence": max(0, min(1, 1 - cv * 0.6)),
+        "is_viable": (total_p50 / denom) >= 1,
+    }
 
-PBG, FC, GC = "rgba(0,0,0,0)", "#374151", "rgba(5,150,105,0.07)"
+def conventional_cost(tech_id: int) -> float:
+    """Estimate conventional lifetime cost for VI denominator."""
+    d = TECHNOLOGIES.iloc[tech_id]
+    capex = d["capex_per_kw"] * d["installed_capacity"] * 1000  # USD
+    opex = (d["other_opex"] + d["feedstock_cost"] * 0.001) * d["project_lifetime"]
+    return max(1e6, capex + opex)
 
-def pl(h=380, ml=20, mr=20, mt=20, mb=30):
-    return dict(
-        paper_bgcolor=PBG, plot_bgcolor=PBG,
-        font=dict(family="Inter", color=FC, size=10),
-        height=h, margin=dict(l=ml, r=mr, t=mt, b=mb),
-        legend=dict(orientation="h", y=-0.22, font=dict(size=9)),
-        xaxis=dict(gridcolor=GC, linecolor="#e2e8f0", zeroline=False, tickfont=dict(size=9)),
-        yaxis=dict(gridcolor=GC, linecolor="#e2e8f0", zeroline=False, tickfont=dict(size=9)),
+# ============================================================================
+# UI HELPERS
+# ============================================================================
+def kpi(label: str, value: str, sub: str = ""):
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value}</div>'
+        f'<div style="color:#9ca3af;font-size:12px;margin-top:4px;">{sub}</div></div>',
+        unsafe_allow_html=True,
     )
 
-def pl_geo(h=380, ml=0, mr=0, mt=4, mb=0):
-    """Layout dict for Scattergeo maps — no xaxis/yaxis/legend keys to avoid conflicts."""
-    return dict(
-        paper_bgcolor=PBG,
-        font=dict(family="Inter", color=FC, size=10),
-        height=h, margin=dict(l=ml, r=mr, t=mt, b=mb),
-    )
-
-def calc_crf(w, l):
-    return 1/l if w == 0 else (w*(1+w)**l)/((1+w)**l - 1)
-
-def fm(v):
-    if abs(v) >= 1e9: return f"${v/1e9:.2f}B"
-    if abs(v) >= 1e6: return f"${v/1e6:.1f}M"
-    if abs(v) >= 1e3: return f"${v/1e3:.0f}K"
+def fmt_usd(v: float) -> str:
+    a = abs(v)
+    if a >= 1e12: return f"${v/1e12:.2f}T"
+    if a >= 1e9:  return f"${v/1e9:.2f}B"
+    if a >= 1e6:  return f"${v/1e6:.2f}M"
+    if a >= 1e3:  return f"${v/1e3:.1f}K"
     return f"${v:.0f}"
 
-def kpi(val, label, sub=""):
-    s = f'<div class="kpi-sub">{sub}</div>' if sub else ""
-    return (f'<div class="kpi-card">'
-            f'<div class="kpi-label">{label}</div>'
-            f'<div class="kpi-value">{val}</div>{s}</div>')
+# ============================================================================
+# PAGES
+# ============================================================================
+def page_overview():
+    st.title("🌍 MIDDIC Overview")
+    st.caption("Cakupan global Market-Based Mechanisms (MBM) untuk 43 teknologi rendah karbon di 184 negara.")
 
-def compute(prices, t, ti, dr_price_override=None):
-    o  = ti["annual_output"][t]
-    ck = ti["installed_capacity"][t] * 1000
-    lt = ti["project_lifetime"][t]
-    w  = ti["wacc"][t]
-    cap = ck * ti["capex_per_kw"][t]
-    crf = calc_crf(w, lt)
-    ac  = cap * crf
-    fo  = cap * ti["opex_pct"][t]
-    tc  = ac + fo + ti["feedstock_cost"][t] + ti["other_opex"][t]
-    co2 = o * ti["co2_abated_factor"][t]
-    # Use country-specific market price if available, else global default
-    dr  = 0  # Direct revenue excluded — MBM-only analysis
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi("Technologies", "43", "innovations tracked")
+    with c2: kpi("Mechanisms", "11", "MBM categories")
+    with c3: kpi("Countries", str(len(COUNTRIES)), "with ISO3 mapping")
+    with c4: kpi("Avg Carbon Price", f"${COUNTRIES['carbon_price'][COUNTRIES['carbon_price']>0].mean():.1f}",
+                 "USD/tCO₂e (priced countries)")
 
-    def active(mi): return MBM_MATRIX[t][mi] is not None
+    st.markdown("### 🗺️ Global Carbon Price Coverage")
+    fig = px.choropleth(
+        COUNTRIES, locations="iso3", color="carbon_price",
+        hover_name="name", hover_data={"iso3": False, "carbon_price": ":.1f", "region": True},
+        color_continuous_scale=["#ecfdf5", "#10b981", "#064e3b"],
+        labels={"carbon_price": "USD/tCO₂e"},
+    )
+    fig.update_layout(height=500, margin=dict(l=0, r=0, t=10, b=0),
+                      geo=dict(showframe=False, projection_type="natural earth"))
+    st.plotly_chart(fig, use_container_width=True)
 
-    e  = co2*prices["ets"]              if active(0) and co2>0 else 0
-    cx = co2*prices["ctax"]             if active(1) and co2>0 else 0
-    fu = o*prices["fuel"]*0.85          if active(2) and o>0   else 0
-    cf = (o*max(0,prices["cfd_strike"]-prices["cfd_ref"])*0.5 if active(3) and o>0 else 0)
-    ccf= (co2*max(0,prices["ccfd_strike"]-prices["ccfd_ref"])*0.5 if active(4) and co2>0 else 0)
-    cb = co2*prices["cbam"]*0.85        if active(5) and co2>0 else 0
-    co = co2*prices["corsia"]*1.05      if active(6) and co2>0 else 0
-    im = co2*prices["imo"]*0.95         if active(7) and co2>0 else 0
-    v  = co2*prices["vcm"]              if active(8) and co2>0 else 0
-    am = (o/1000)*prices["amc"]*0.5     if active(9) and o>0   else 0
-    fb = co2*prices["feebate"]*0.5      if active(10) and co2>0 else 0
+    cA, cB = st.columns(2)
+    with cA:
+        st.markdown("### Mechanism Country Coverage")
+        m_sorted = MECHANISMS.sort_values("countries", ascending=True)
+        fig = px.bar(m_sorted, x="countries", y="short", orientation="h",
+                     color="countries", color_continuous_scale=["#a7f3d0", "#064e3b"],
+                     labels={"countries": "# Countries", "short": ""})
+        fig.update_layout(height=420, showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
 
-    mb = e+cx+fu+cf+ccf+cb+co+im+v+am+fb
-    tr = mb+dr
-    return {
-        "tc":tc,"ac":ac,"fo":fo,"co2":co2,"dr":dr,"mb":mb,"tr":tr,
-        "nc":tr-tc,"lr":tr*lt,"rc":tr/tc if tc>0 else 0,
-        "bd":{"ETS":e,"Carbon Tax":cx,"Fuel Mandate":fu,"CfD":cf,"CCfD":ccf,
-              "CBAM":cb,"CORSIA":co,"IMO Levy":im,"VCM/CDM":v,"AMC":am,"Feebate":fb},
-    }
+    with cB:
+        st.markdown("### Top 10 Carbon Pricing Countries")
+        top10 = COUNTRIES[COUNTRIES["carbon_price"] > 0].nlargest(10, "carbon_price")
+        fig = px.bar(top10.sort_values("carbon_price"), x="carbon_price", y="name", orientation="h",
+                     color="carbon_price", color_continuous_scale=["#a7f3d0", "#064e3b"],
+                     labels={"carbon_price": "USD/tCO₂e", "name": ""})
+        fig.update_layout(height=420, showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
 
-COUNTRY_ENERGY_PRICES = {
-    "AFG":{"g":0.954,"d":0.97,"ng":None,"er":0.052,"eb":0.093},
-    "AGO":{"g":0.327,"d":0.436,"ng":None,"er":0.016,"eb":0.013},
-    "ALB":{"g":2.403,"d":2.585,"ng":None,"er":0.118,"eb":0.137},
-    "AND":{"g":1.84,"d":1.993,"ng":None,"er":0.195,"eb":0.176},
-    "ARE":{"g":0.893,"d":1.277,"ng":None,"er":0.08,"eb":0.11},
-    "ARG":{"g":1.52,"d":1.613,"ng":0.023,"er":0.083,"eb":0.095},
-    "ARM":{"g":1.328,"d":1.381,"ng":None,"er":0.112,"eb":0.11},
-    "AUS":{"g":1.472,"d":1.904,"ng":0.091,"er":0.257,"eb":0.24},
-    "AUT":{"g":2.073,"d":2.584,"ng":0.153,"er":0.351,"eb":0.291},
-    "AZE":{"g":0.676,"d":0.647,"ng":0.016,"er":0.048,"eb":0.064},
-    "BEL":{"g":2.175,"d":2.662,"ng":0.09,"er":0.404,"eb":0.261},
-    "BFA":{"g":1.495,"d":1.187,"ng":None,"er":0.208,"eb":0.216},
-    "BGD":{"g":0.972,"d":0.81,"ng":0.011,"er":0.062,"eb":0.1},
-    "BGR":{"g":1.687,"d":1.937,"ng":None,"er":0.154,"eb":0.152},
-    "BHR":{"g":0.67,"d":0.583,"ng":0.013,"er":0.048,"eb":0.078},
-    "BHS":{"g":1.464,"d":1.44,"ng":None,"er":0.348,"eb":0.369},
-    "BIH":{"g":1.678,"d":2.127,"ng":None,"er":0.106,"eb":0.117},
-    "BLR":{"g":0.908,"d":0.908,"ng":0.007,"er":0.085,"eb":0.111},
-    "BLZ":{"g":1.921,"d":1.912,"ng":None,"er":0.217,"eb":0.173},
-    "BRA":{"g":1.314,"d":1.444,"ng":0.214,"er":0.162,"eb":0.132},
-    "BRB":{"g":1.852,"d":1.564,"ng":0.094,"er":0.313,"eb":0.326},
-    "BTN":{"g":0.917,"d":0.992,"ng":None,"er":0.015,"eb":0.019},
-    "BWA":{"g":1.324,"d":1.66,"ng":None,"er":0.094,"eb":0.12},
-    "CAN":{"g":1.499,"d":1.694,"ng":0.035,"er":0.123,"eb":0.108},
-    "CHE":{"g":2.348,"d":2.762,"ng":0.184,"er":0.366,"eb":0.286},
-    "CHL":{"g":1.649,"d":1.537,"ng":0.136,"er":0.224,"eb":0.166},
-    "CHN":{"g":1.341,"d":1.203,"ng":0.051,"er":0.076,"eb":0.098},
-    "CIV":{"g":1.442,"d":1.187,"ng":None,"er":0.131,"eb":0.234},
-    "CMR":{"g":1.479,"d":1.458,"ng":None,"er":0.084,"eb":0.178},
-    "COD":{"g":1.052,"d":1.047,"ng":None,"er":0.065,"eb":0.076},
-    "COL":{"g":1.112,"d":0.797,"ng":0.07,"er":0.205,"eb":0.203},
-    "CPV":{"g":1.463,"d":1.229,"ng":None,"er":0.329,"eb":0.203},
-    "CRI":{"g":1.365,"d":1.143,"ng":None,"er":0.17,"eb":0.23},
-    "CUB":{"g":1.295,"d":1.096,"ng":None,"er":0.015,"eb":None},
-    "CYP":{"g":1.755,"d":2.138,"ng":None,"er":0.34,"eb":0.304},
-    "CZE":{"g":1.96,"d":2.287,"ng":0.114,"er":0.352,"eb":0.228},
-    "DEU":{"g":2.527,"d":2.825,"ng":0.122,"er":0.406,"eb":0.285},
-    "DNK":{"g":2.694,"d":2.968,"ng":0.125,"er":0.361,"eb":0.234},
-    "DOM":{"g":1.327,"d":1.043,"ng":None,"er":0.115,"eb":0.171},
-    "DZA":{"g":0.354,"d":0.233,"ng":0.003,"er":0.041,"eb":0.035},
-    "ECU":{"g":0.763,"d":0.745,"ng":None,"er":0.097,"eb":0.092},
-    "EGY":{"g":0.439,"d":0.375,"ng":0.011,"er":0.024,"eb":0.037},
-    "ESP":{"g":1.816,"d":2.163,"ng":0.102,"er":0.253,"eb":0.135},
-    "EST":{"g":1.998,"d":2.302,"ng":None,"er":0.29,"eb":0.164},
-    "ETH":{"g":0.902,"d":1.035,"ng":None,"er":0.006,"eb":0.018},
-    "FIN":{"g":2.36,"d":2.58,"ng":None,"er":0.174,"eb":0.124},
-    "FRA":{"g":2.31,"d":2.591,"ng":0.142,"er":0.276,"eb":0.185},
-    "GBR":{"g":1.978,"d":2.347,"ng":0.089,"er":0.404,"eb":0.445},
-    "GEO":{"g":1.329,"d":1.441,"ng":None,"er":0.066,"eb":0.105},
-    "GHA":{"g":1.303,"d":1.553,"ng":None,"er":0.143,"eb":0.134},
-    "GRC":{"g":2.404,"d":2.403,"ng":0.085,"er":0.251,"eb":0.232},
-    "GTM":{"g":1.436,"d":1.546,"ng":None,"er":0.297,"eb":0.189},
-    "HND":{"g":1.308,"d":1.254,"ng":None,"er":0.233,"eb":0.231},
-    "HRV":{"g":1.949,"d":2.182,"ng":None,"er":0.178,"eb":0.174},
-    "HUN":{"g":1.812,"d":1.873,"ng":0.093,"er":0.11,"eb":0.251},
-    "IDN":{"g":0.727,"d":0.858,"ng":None,"er":0.091,"eb":0.07},
-    "IND":{"g":1.089,"d":0.975,"ng":0.049,"er":0.077,"eb":0.123},
-    "IRL":{"g":2.271,"d":2.526,"ng":0.126,"er":0.447,"eb":None},
-    "IRN":{"g":0.029,"d":0.006,"ng":None,"er":0.003,"eb":None},
-    "IRQ":{"g":0.649,"d":None,"ng":None,"er":0.015,"eb":0.045},
-    "ISL":{"g":1.855,"d":2.157,"ng":None,"er":0.177,"eb":0.086},
-    "ISR":{"g":2.64,"d":2.51,"ng":None,"er":0.182,"eb":0.112},
-    "ITA":{"g":2.075,"d":2.498,"ng":0.15,"er":0.415,"eb":0.415},
-    "JAM":{"g":1.359,"d":1.397,"ng":None,"er":0.287,"eb":0.241},
-    "JOR":{"g":1.693,"d":1.016,"ng":None,"er":0.09,"eb":0.137},
-    "JPN":{"g":1.114,"d":0.978,"ng":0.077,"er":0.228,"eb":0.202},
-    "KAZ":{"g":0.526,"d":0.625,"ng":None,"er":0.056,"eb":0.075},
-    "KEN":{"g":1.363,"d":1.274,"ng":None,"er":0.218,"eb":0.175},
-    "KGZ":{"g":0.926,"d":0.919,"ng":None,"er":0.014,"eb":0.039},
-    "KHM":{"g":1.66,"d":2.047,"ng":None,"er":0.15,"eb":0.0},
-    "KOR":{"g":1.44,"d":1.434,"ng":0.073,"er":0.126,"eb":0.119},
-    "KWT":{"g":0.339,"d":0.371,"ng":None,"er":0.039,"eb":0.069},
-    "LAO":{"g":1.893,"d":2.328,"ng":None,"er":0.029,"eb":None},
-    "LBY":{"g":0.023,"d":0.023,"ng":None,"er":None,"eb":None},
-    "LIE":{"g":2.482,"d":2.846,"ng":None,"er":0.402,"eb":0.274},
-    "LKA":{"g":1.442,"d":1.404,"ng":None,"er":0.116,"eb":0.091},
-    "LSO":{"g":1.38,"d":1.806,"ng":None,"er":0.106,"eb":0.022},
-    "LTU":{"g":2.017,"d":2.465,"ng":None,"er":0.281,"eb":0.187},
-    "LUX":{"g":2.039,"d":2.535,"ng":None,"er":0.258,"eb":0.22},
-    "LVA":{"g":2.132,"d":2.385,"ng":None,"er":0.281,"eb":0.169},
-    "MAR":{"g":1.642,"d":1.543,"ng":None,"er":0.12,"eb":0.11},
-    "MDA":{"g":1.711,"d":1.971,"ng":None,"er":0.177,"eb":0.156},
-    "MDG":{"g":1.176,"d":1.119,"ng":None,"er":0.129,"eb":0.188},
-    "MEX":{"g":1.583,"d":1.613,"ng":0.037,"er":0.108,"eb":0.212},
-    "MKD":{"g":1.572,"d":1.845,"ng":None,"er":0.128,"eb":0.256},
-    "MLI":{"g":1.539,"d":1.653,"ng":None,"er":0.221,"eb":0.16},
-    "MLT":{"g":1.554,"d":1.403,"ng":None,"er":0.148,"eb":0.164},
-    "MMR":{"g":1.52,"d":1.809,"ng":None,"er":0.025,"eb":0.106},
-    "MOZ":{"g":1.307,"d":1.249,"ng":None,"er":0.127,"eb":0.08},
-    "MUS":{"g":1.243,"d":1.378,"ng":None,"er":0.134,"eb":0.135},
-    "MWI":{"g":3.847,"d":3.856,"ng":None,"er":0.087,"eb":0.151},
-    "MYS":{"g":0.96,"d":1.493,"ng":0.03,"er":0.05,"eb":0.129},
-    "NGA":{"g":0.887,"d":1.463,"ng":None,"er":0.036,"eb":0.05},
-    "NIC":{"g":1.334,"d":1.177,"ng":None,"er":0.176,"eb":0.217},
-    "NLD":{"g":2.709,"d":2.866,"ng":0.137,"er":0.284,"eb":0.22},
-    "NOR":{"g":2.183,"d":2.612,"ng":None,"er":0.162,"eb":0.109},
-    "NPL":{"g":1.358,"d":1.224,"ng":None,"er":0.043,"eb":0.068},
-    "NZL":{"g":2.009,"d":1.881,"ng":0.097,"er":0.209,"eb":None},
-    "OMN":{"g":0.622,"d":0.671,"ng":None,"er":0.03,"eb":0.188},
-    "PAK":{"g":1.356,"d":1.865,"ng":None,"er":0.064,"eb":0.154},
-    "PAN":{"g":1.255,"d":1.358,"ng":None,"er":0.176,"eb":0.198},
-    "PER":{"g":1.627,"d":1.682,"ng":None,"er":0.187,"eb":0.162},
-    "PHL":{"g":1.573,"d":2.149,"ng":None,"er":0.207,"eb":0.155},
-    "POL":{"g":1.957,"d":2.349,"ng":0.121,"er":0.234,"eb":0.346},
-    "PRT":{"g":2.248,"d":2.472,"ng":0.152,"er":0.237,"eb":0.158},
-    "PRY":{"g":1.117,"d":1.377,"ng":None,"er":0.054,"eb":0.045},
-    "QAT":{"g":0.562,"d":0.562,"ng":None,"er":0.032,"eb":0.036},
-    "ROU":{"g":2.089,"d":2.293,"ng":None,"er":0.212,"eb":0.238},
-    "RUS":{"g":0.862,"d":0.991,"ng":0.01,"er":0.068,"eb":0.1},
-    "RWA":{"g":1.577,"d":1.51,"ng":None,"er":0.208,"eb":0.077},
-    "SAU":{"g":0.621,"d":0.477,"ng":None,"er":0.052,"eb":0.07},
-    "SEN":{"g":1.618,"d":1.196,"ng":None,"er":0.183,"eb":None},
-    "SGP":{"g":2.406,"d":3.247,"ng":0.19,"er":0.233,"eb":0.265},
-    "SLE":{"g":1.779,"d":2.033,"ng":None,"er":0.231,"eb":0.303},
-    "SLV":{"g":1.135,"d":1.097,"ng":None,"er":0.253,"eb":0.223},
-    "SRB":{"g":1.868,"d":2.115,"ng":0.045,"er":0.128,"eb":0.143},
-    "SVK":{"g":1.829,"d":1.957,"ng":0.065,"er":0.213,"eb":0.296},
-    "SVN":{"g":1.874,"d":2.096,"ng":None,"er":0.227,"eb":0.19},
-    "SWE":{"g":2.058,"d":2.718,"ng":0.229,"er":0.241,"eb":None},
-    "SWZ":{"g":1.152,"d":1.176,"ng":None,"er":0.127,"eb":0.09},
-    "TGO":{"g":1.196,"d":1.223,"ng":None,"er":0.198,"eb":0.181},
-    "THA":{"g":1.649,"d":1.495,"ng":None,"er":0.127,"eb":0.128},
-    "TTO":{"g":1.142,"d":0.65,"ng":None,"er":0.057,"eb":0.053},
-    "TUN":{"g":0.858,"d":0.749,"ng":0.031,"er":0.067,"eb":0.115},
-    "TZA":{"g":1.469,"d":1.464,"ng":None,"er":0.091,"eb":0.093},
-    "UGA":{"g":1.409,"d":1.355,"ng":None,"er":0.171,"eb":0.117},
-    "UKR":{"g":1.729,"d":2.105,"ng":0.021,"er":0.083,"eb":0.155},
-    "URY":{"g":2.025,"d":1.247,"ng":None,"er":0.254,"eb":0.125},
-    "USA":{"g":1.175,"d":1.491,"ng":0.048,"er":0.186,"eb":0.148},
-    "UZB":{"g":1.011,"d":1.08,"ng":None,"er":0.037,"eb":0.067},
-    "VEN":{"g":0.035,"d":0.004,"ng":None,"er":0.069,"eb":0.081},
-    "VNM":{"g":1.042,"d":1.717,"ng":None,"er":0.078,"eb":0.078},
-    "ZAF":{"g":1.363,"d":1.702,"ng":None,"er":0.204,"eb":0.103},
-    "ZMB":{"g":1.401,"d":1.537,"ng":None,"er":0.023,"eb":0.039},
-    "ZWE":{"g":2.23,"d":2.11,"ng":None,"er":None,"eb":None},
+    st.markdown("### Mechanism Catalog")
+    st.dataframe(MECHANISMS[["short", "full", "type", "category", "unit", "countries"]],
+                 use_container_width=True, hide_index=True)
+
+
+def page_revenue():
+    st.title("💰 Revenue Estimation")
+    st.caption("Monte Carlo lifetime revenue (Y = subsidies/incentives, X = avoided compliance) — GBM 5000 simulations.")
+
+    with st.sidebar:
+        st.markdown("### Configuration")
+        tech_id = st.selectbox("Technology", TECHNOLOGIES["id"],
+                               format_func=lambda i: TECHNOLOGIES.iloc[i]["name"])
+        scenario = st.radio("Policy Scenario", list(SCENARIO_LABEL.keys()),
+                            format_func=lambda s: SCENARIO_LABEL[s])
+        n_sims = st.slider("Monte Carlo iterations", 500, 10000, 5000, step=500)
+
+        st.markdown("### Tech Parameters")
+        d = TECHNOLOGIES.iloc[tech_id]
+        annual_output = st.number_input("Annual output (units/yr)", 0.0, value=float(d["annual_output"]))
+        capacity = st.number_input("Installed capacity (GW)", 0.0, value=float(d["installed_capacity"]))
+        lifetime = st.slider("Project lifetime (yrs)", 5, 60, int(d["project_lifetime"]))
+        co2_factor = st.slider("CO₂ abated factor", 0.0, 2.0, float(d["co2_abated_factor"]), 0.05)
+
+    # Override defaults for this run
+    TECHNOLOGIES.loc[tech_id, "annual_output"] = annual_output
+    TECHNOLOGIES.loc[tech_id, "installed_capacity"] = capacity
+    TECHNOLOGIES.loc[tech_id, "project_lifetime"] = lifetime
+    TECHNOLOGIES.loc[tech_id, "co2_abated_factor"] = co2_factor
+
+    base = prices_for_scenario(scenario)
+
+    with st.spinner(f"Running {n_sims} Monte Carlo simulations..."):
+        result = run_monte_carlo(tech_id, base, n_sims=n_sims)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi("Lifetime P50", fmt_usd(result["total_p50"]), f"{result['lifetime_years']} years")
+    with c2: kpi("P5 – P95", f"{fmt_usd(result['total_p5'])} – {fmt_usd(result['total_p95'])}", "90% confidence")
+    with c3: kpi("Subsidies (Y) P50", fmt_usd(result["y_p50"]), "CfD, CCfD, AMC, Feebate")
+    with c4: kpi("Compliance (X) P50", fmt_usd(result["x_p50"]), "ETS, Tax, Fuel, CBAM, IMO, VCM")
+
+    cA, cB = st.columns([2, 1])
+    with cA:
+        st.markdown("### Lifetime Revenue Distribution")
+        fig = go.Figure()
+        fig.add_trace(go.Box(y=result["y_samples"], name="Y (Subsidies)", marker_color="#10b981"))
+        fig.add_trace(go.Box(y=result["x_samples"], name="X (Compliance)", marker_color="#064e3b"))
+        fig.add_trace(go.Box(y=result["total_samples"], name="Y + X (Total)", marker_color="#a7f3d0"))
+        fig.update_layout(height=420, yaxis_title="USD lifetime", margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cB:
+        st.markdown("### Y vs X Composition (P50)")
+        fig = px.pie(values=[result["y_p50"], result["x_p50"]],
+                     names=["Y (Subsidies)", "X (Compliance)"],
+                     color_discrete_sequence=["#10b981", "#064e3b"], hole=0.5)
+        fig.update_layout(height=420, margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Annual Revenue Trajectory (P50)")
+    years = list(range(1, result["lifetime_years"] + 1))
+    df_path = pd.DataFrame({"Year": years, "Annual Revenue (USD)": result["annual_path_p50"]})
+    fig = px.area(df_path, x="Year", y="Annual Revenue (USD)",
+                  color_discrete_sequence=["#10b981"])
+    fig.update_layout(height=320, margin=dict(l=0,r=0,t=10,b=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### 🌐 Country Distribution (Lifetime P50, weighted by GDP)")
+    df_map = COUNTRIES.copy()
+    df_map["revenue"] = df_map["weight"] * result["total_p50"]
+    fig = px.choropleth(df_map, locations="iso3", color="revenue", hover_name="name",
+                        color_continuous_scale=["#ecfdf5", "#10b981", "#064e3b"],
+                        labels={"revenue": "USD lifetime"})
+    fig.update_layout(height=480, margin=dict(l=0,r=0,t=10,b=0),
+                      geo=dict(showframe=False, projection_type="natural earth"))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def page_viability():
+    st.title("📊 Viability Analytics")
+    st.caption("Viability Index (VI) = (Y + X) / (GP × C_conv). VI ≥ 1 → economically viable.")
+
+    with st.sidebar:
+        st.markdown("### Configuration")
+        tech_id = st.selectbox("Technology", TECHNOLOGIES["id"],
+                               format_func=lambda i: TECHNOLOGIES.iloc[i]["name"], key="via_tech")
+        scenario = st.radio("Policy Scenario", list(SCENARIO_LABEL.keys()),
+                            format_func=lambda s: SCENARIO_LABEL[s], key="via_scen")
+        green_premium = st.slider("Green Premium (%)", 5, 100, 30, key="via_gp") / 100
+
+    base = prices_for_scenario(scenario)
+    with st.spinner("Computing viability..."):
+        result = run_monte_carlo(tech_id, base, n_sims=3000)
+        c_conv = conventional_cost(tech_id)
+        vi = compute_vi(result["total_p50"], result["total_p5"], result["total_p95"],
+                        result["total_mean"], result["total_std"], green_premium, c_conv)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi("Viability Index (P50)", f"{vi['vi_p50']:.2f}",
+                 "✅ Viable" if vi["is_viable"] else "❌ Below 1.0")
+    with c2: kpi("VI Range (P5 – P95)", f"{vi['vi_p5']:.2f} – {vi['vi_p95']:.2f}", "90% interval")
+    with c3: kpi("Break-even GP", f"{vi['break_even_gp']*100:.1f}%", "Premium needed for VI=1")
+    with c4: kpi("Confidence", f"{vi['confidence']*100:.0f}%", "Inverse coefficient of variation")
+
+    st.markdown("### VI Distribution Across Countries (weighted)")
+    df_map = COUNTRIES.copy()
+    # Adjust per-country VI by carbon price multiplier
+    base_carbon = max(1, COUNTRIES["carbon_price"].mean())
+    df_map["vi"] = vi["vi_p50"] * (1 + (df_map["carbon_price"] - base_carbon) / max(1, base_carbon) * 0.3)
+    df_map["vi_bucket"] = pd.cut(df_map["vi"], bins=[-np.inf, 0.5, 1.0, 1.5, 2.0, np.inf],
+                                  labels=["<0.5", "0.5–1.0", "1.0–1.5", "1.5–2.0", ">2.0"])
+
+    fig = px.choropleth(df_map, locations="iso3", color="vi", hover_name="name",
+                        color_continuous_scale=["#fee2e2", "#fef3c7", "#10b981", "#064e3b"],
+                        range_color=[0, 2.5], labels={"vi": "VI"})
+    fig.update_layout(height=480, margin=dict(l=0,r=0,t=10,b=0),
+                      geo=dict(showframe=False, projection_type="natural earth"))
+    st.plotly_chart(fig, use_container_width=True)
+
+    cA, cB = st.columns(2)
+    with cA:
+        st.markdown("### VI Histogram")
+        fig = px.histogram(df_map, x="vi", nbins=30, color_discrete_sequence=["#10b981"])
+        fig.add_vline(x=1.0, line_dash="dash", line_color="red", annotation_text="VI=1")
+        fig.update_layout(height=380, margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with cB:
+        st.markdown("### Viability Buckets")
+        bucket_counts = df_map["vi_bucket"].value_counts().sort_index()
+        fig = px.bar(x=bucket_counts.index.astype(str), y=bucket_counts.values,
+                     color=bucket_counts.values, color_continuous_scale=["#fee2e2","#10b981","#064e3b"],
+                     labels={"x": "VI Bucket", "y": "# Countries"})
+        fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False, margin=dict(l=0,r=0,t=10,b=0))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### Top 15 Most Viable Countries")
+    top = df_map.nlargest(15, "vi")[["name", "region", "carbon_price", "vi"]]
+    top.columns = ["Country", "Region", "Carbon Price (USD/tCO₂e)", "Viability Index"]
+    st.dataframe(top, use_container_width=True, hide_index=True)
+
+
+# ============================================================================
+# ROUTER
+# ============================================================================
+PAGES = {
+    "🌍 Part 1 — Overview": page_overview,
+    "💰 Part 2 — Revenue Estimation": page_revenue,
+    "📊 Part 3 — Viability Analytics": page_viability,
 }
 
-# Tech-to-energy price mapping: which energy price scales the feedstock cost per country.
-# eb = Electricity Business (USD/kWh) — dominates OPEX for electro-intensive processes
-# ng = Natural Gas (USD/kWh)          — fuel/feedstock for thermal and chemical processes
-# d  = Diesel (USD/L)                 — fuel for transport fuels and maritime
-# All 44 technologies are mapped so cost varies by country energy price.
-TECH_ENERGY_OVERRIDES = {
-    #  Clean Energy Generation — O&M labour/parts scale with grid electricity cost
-    "Solar PV":                                    "eb",
-    "Onshore Wind":                                "eb",
-    "Offshore Wind (fixed foundation)":            "eb",
-    "Floating Offshore Wind":                      "eb",
-    "Concentrated Solar Power (CSP)":              "eb",
-    "Ocean / Tidal / Wave Energy":                 "eb",
-    "Small Modular Reactors (SMR)":                "eb",   # auxiliary power, cooling pumps
-    "Enhanced Geothermal Systems (EGS)":           "eb",   # pumping/drilling power
-
-    #  Energy Storage & Grid — electricity is core input/output
-    "Green Hydrogen (electrolysis)":               "eb",
-    "Battery Storage (grid-scale)":                "eb",
-    "Long-Duration Energy Storage (LDES)":         "eb",
-    "Smart Grid & Grid Modernization":             "eb",
-    "HVDC Transmission":                           "eb",
-    "Virtual Power Plants (VPP)":                  "eb",
-
-    #  Industrial Decarbonisation
-    "Low-carbon Steel & Cement":                   "eb",   # electric arc / kiln electrification
-    "Electric Arc Furnace (EAF)":                  "eb",   # directly electricity-driven
-    "Green Aluminium":                             "eb",   # electrolysis-dominant process
-    "Low-carbon Concrete":                         "eb",   # electric kiln/curing
-    "Green Fertilizer (low-carbon NH3)":           "ng",   # Haber-Bosch gas feedstock
-    "Hydrogen-based Chemicals":                    "eb",   # electrolysis-based H2 input
-    "Industrial Heat Pumps (high-temp)":           "eb",   # electricity = fuel
-
-    #  Transport & Fuels
-    "Sustainable Aviation Fuel (SAF)":             "d",    # diesel/kerosene feedstock proxy
-    "HVO (Hydrotreated Vegetable Oil)":            "d",
-    "E-kerosene (aviation e-fuel)":                "eb",   # power-to-liquid electricity input
-    "E-Ammonia (maritime fuel)":                   "eb",   # green NH3 via electrolysis
-    "E-Methanol (maritime fuel)":                  "eb",   # power-to-methanol
-    "E-diesel  (road & ship)":                     "eb",   # power-to-liquid
-    "Biogas (anaerobic digestion)":                "ng",   # gas price as feedstock proxy
-    "Biomethane (upgraded to grid)":               "ng",
-    "Electric Vehicles (EVs)":                     "eb",
-    "Hydrogen Fuel Cells (heavy-duty)":            "eb",   # H2 from electrolysis
-    "Electric Aviation (eVTOL/short-haul)":        "eb",
-    "Rail Electrification":                        "eb",
-
-    #  Carbon Removal & Nature
-    "Carbon Capture & Storage (CCUS)":             "eb",   # capture compression power
-    "BECCS (Bioenergy + CCS)":                     "eb",   # net electricity consumer
-    "Direct Air Capture (DAC)":                    "eb",   # highly electricity-intensive
-    "Waste-to-Energy + CCS":                       "eb",   # plant auxiliary power
-    "Reforestation / REDD+ / NBS":                 "d",    # diesel for machinery/transport
-    "Blue Carbon (mangroves, seagrass)":           "d",    # field operations / boats
-
-    #  Building & Efficiency
-    "Building Energy Efficiency / Retrofits":      "eb",   # HVAC, lighting baseline cost
-
-    #  Circular Economy
-    "Advanced / Chemical Recycling":               "eb",   # thermochemical process power
-    "Critical Minerals Processing (low-C)":        "eb",   # electro-refining dominant
-
-    #  Digital Infrastructure
-    "Green Data Centers":                          "eb",   # directly electricity-driven
-}
-
-# Direct revenue override mapping: which country energy price to use as market_price proxy
-# Groups:
-#   "eb_mwh"  → Electricity Business USD/kWh * 1000 → USD/MWh  (power/grid techs)
-#   "ng_mwh"  → Nat Gas USD/kWh * 1000 → USD/MWh              (gas grid techs)
-#   "d_tonne" → Diesel USD/L * 278 → USD/tonne equiv           (aviation/maritime fuels)
-#   "g_tonne" → Gasoline USD/L * 278 → USD/tonne equiv         (road fuels)
-#   None      → don't override (commodity price e.g. steel, cement not in our data)
-TECH_DR_PRICE_SOURCE = {
-    # Power sold to grid — use local electricity business tariff
-    "Solar PV": "eb_mwh",
-    "Onshore Wind": "eb_mwh",
-    "Offshore Wind (fixed foundation)": "eb_mwh",
-    "Floating Offshore Wind": "eb_mwh",
-    "Concentrated Solar Power (CSP)": "eb_mwh",
-    "Ocean / Tidal / Wave Energy": "eb_mwh",
-    "Small Modular Reactors (SMR)": "eb_mwh",
-    "Enhanced Geothermal Systems (EGS)": "eb_mwh",
-    "Battery Storage (grid-scale)": "eb_mwh",
-    "Long-Duration Energy Storage (LDES)": "eb_mwh",
-    "Industrial Heat Pumps (high-temp)": "eb_mwh",
-    "Biogas (anaerobic digestion)": "eb_mwh",
-    "Biomethane (upgraded to grid)": "ng_mwh",
-    "Green Data Centers": "eb_mwh",
-    "Building Energy Efficiency / Retrofits": "eb_mwh",
-    "Waste-to-Energy + CCS": "eb_mwh",
-    "Electric Aviation (eVTOL/short-haul)": "eb_mwh",
-    "Rail Electrification": "eb_mwh",
-    # Aviation/maritime fuels — compete with diesel/kerosene
-    "Sustainable Aviation Fuel (SAF)": "d_tonne",
-    "HVO (Hydrotreated Vegetable Oil)": "d_tonne",
-    "E-kerosene (aviation e-fuel)": "d_tonne",
-    "E-Ammonia (maritime fuel)": "d_tonne",
-    "E-Methanol (maritime fuel)": "d_tonne",
-    "E-diesel  (road & ship)": "d_tonne",
-    # Estimated from energy price correlations
-    "Green Hydrogen (electrolysis)": "h2_from_elec",      # H2 price ~ f(electricity)
-    "Green Fertilizer (low-carbon NH3)": "nh3_from_gas",   # NH3 price ~ f(nat gas)
-    "Hydrogen-based Chemicals": "h2_from_elec",            # H2-based, similar driver
-    "Electric Vehicles (EVs)": "ev_from_gasoline",         # savings vs gasoline
-    "Hydrogen Fuel Cells": "h2_from_elec",                 # H2 fuel price
-    "BECCS (Bioenergy + CCS)": "eb_mwh",                   # sells electricity
-    "Carbon Capture & Storage (CCUS)": "ccus_service",     # service fee ~ f(energy)
-    "Direct Air Capture (DAC)": "ccus_service",
-}
-
-
-def compute_country_dr_override(tech_name, iso3, ti_market_price):
-    """Return country-adjusted direct revenue price, or None to use default.
-
-    Conversion notes:
-      eb_mwh      → USD/kWh × 1000 = USD/MWh
-      ng_mwh      → USD/kWh × 1000 = USD/MWh
-      d_tonne     → USD/L  × 840   = USD/tonne (diesel ρ ≈ 0.84 kg/L)
-      h2_from_elec→ Green H2 levelised price ≈ elec_cost × 55 + 500 (USD/tonne)
-                    (55 kWh/kg H2, ~500 USD/tonne non-elec capex/opex)
-      nh3_from_gas→ Green NH3 ≈ gas_cost × 10 + 250 (USD/tonne)
-                    (10 GJ/tonne NH3 ≈ 2.78 MWh, simplified)
-      ev_from_gas → EV value = gasoline savings per km × km driven
-                    proxy: 200 USD/MWh * (gasoline_price / 1.4_global_avg)
-      ccus_service→ carbon capture service ~ scales with local energy cost
-    """
-    source = TECH_DR_PRICE_SOURCE.get(tech_name)
-    if source is None:
-        return None
-    ep = get_country_energy_prices(iso3)
-    if ep is None:
-        return None
-
-    if source == "eb_mwh":
-        val = ep.get("eb")
-        if val is not None:
-            return round(val * 1000, 2)
-
-    elif source == "ng_mwh":
-        val = ep.get("ng")
-        if val is not None:
-            return round(val * 1000, 2)
-        # fallback: nat gas often correlated with electricity
-        val_eb = ep.get("eb")
-        if val_eb is not None:
-            return round(val_eb * 300, 2)  # rough proxy
-
-    elif source == "d_tonne":
-        val = ep.get("d")
-        if val is not None:
-            return round(val * 840, 0)
-
-    elif source == "h2_from_elec":
-        # H2 electrolysis: ~55 kWh/kg = 55,000 kWh/tonne
-        # Market H2 price ≈ electricity_cost_per_tonne + fixed costs
-        # fixed costs (capex/opex non-elec) ~ $500-800/tonne globally
-        val_eb = ep.get("eb")
-        if val_eb is not None:
-            elec_per_tonne = val_eb * 55000  # USD per tonne H2 from electricity alone
-            fixed_costs = 600                 # USD/tonne non-elec
-            h2_price = elec_per_tonne + fixed_costs
-            # Clamp to realistic range $800–$12,000/tonne
-            return round(max(800, min(12000, h2_price)), 0)
-
-    elif source == "nh3_from_gas":
-        # NH3 Haber-Bosch: ~10-12 GJ/tonne ≈ 2.78–3.33 MWh/tonne nat gas
-        # Market NH3 ≈ gas_cost_per_tonne + $250 fixed
-        val_ng = ep.get("ng")
-        if val_ng is not None:
-            gas_per_tonne = val_ng * 3000   # kWh/tonne × USD/kWh
-            nh3_price = gas_per_tonne + 250
-            return round(max(300, min(2500, nh3_price)), 0)
-        # fallback from electricity (green ammonia via e-H2)
-        val_eb = ep.get("eb")
-        if val_eb is not None:
-            # Green NH3 via electrolysis: ~10 MWh electricity/tonne NH3
-            nh3_price = val_eb * 10000 + 250
-            return round(max(300, min(2500, nh3_price)), 0)
-
-    elif source == "ev_from_gasoline":
-        # EV value proposition = fuel savings vs ICE
-        # Global avg gasoline ~1.4 USD/L → EV market ~200 USD/MWh value
-        # Scale linearly with country gasoline price
-        val_g = ep.get("g")
-        if val_g is not None:
-            global_avg_gasoline = 1.45  # USD/L global average
-            base_ev_value = 180         # USD/MWh at global avg price
-            ev_value = base_ev_value * (val_g / global_avg_gasoline)
-            return round(max(20, min(600, ev_value)), 1)
-        # fallback from electricity (charging cost advantage)
-        val_eb = ep.get("eb")
-        if val_eb is not None:
-            return round(val_eb * 1000, 2)
-
-    elif source == "ccus_service":
-        # Carbon capture service fee scales with local energy cost
-        # Global avg ~$80/tCO2 at ~$0.10/kWh electricity
-        # Capture energy: ~3.5 GJ/tCO2 ≈ 0.97 MWh/tCO2
-        val_eb = ep.get("eb")
-        if val_eb is not None:
-            energy_per_tco2_mwh = 0.97
-            base_service = 50            # USD/tCO2 non-energy component
-            service_price = val_eb * 1000 * energy_per_tco2_mwh + base_service
-            return round(max(40, min(300, service_price)), 1)
-
-    return None
-
-def get_country_energy_prices(iso3):
-    """Return energy prices for a country by ISO3 code, or None if not available."""
-    return COUNTRY_ENERGY_PRICES.get(iso3, None)
-
-def compute_country_excel(country_name, base_prices, t, ti):
-    """Compute using Excel country data — only apply mechanisms present in the Excel data."""
-    cp = dict(base_prices)
-    cdata = COUNTRY_DATA_RAW.get(country_name, {})
-    tech_name = TECHNOLOGIES[t]
-    # Normalize tech name lookup (Excel uses slightly different names for some)
-    tech_lookup = tech_name
-    tech_mbms = cdata.get("techs", {}).get(tech_lookup, {})
-
-    # Build a price dict where only active mechanisms (from Excel) retain their price
-    allowed_mechs = set(tech_mbms.keys())
-    # Map Excel MBM names to price keys
-    mech_map = {
-        "ETS": "ets", "Carbon Tax": "ctax", "Fuel Mandate": "fuel",
-        "CfD": "cfd_strike", "CCfD": "ccfd_strike", "CBAM": "cbam",
-        "CORSIA": "corsia", "IMO Levy": "imo", "VCM": "vcm",
-        "CDM/PACM": "vcm", "AMC": "amc", "Feebate": "feebate",
-    }
-    # Zero out mechanisms not in this country-tech combo
-    for excel_name, price_key in mech_map.items():
-        if excel_name not in allowed_mechs:
-            if price_key in ["ets", "ctax", "cbam", "corsia", "imo", "vcm", "amc", "feebate", "fuel"]:
-                cp[price_key] = 0
-    # Zero CfD/CCfD if not active
-    if "CfD" not in allowed_mechs:
-        cp["cfd_strike"] = cp.get("cfd_ref", 80)  # strike==ref → no payment
-    if "CCfD" not in allowed_mechs:
-        cp["ccfd_strike"] = cp.get("ccfd_ref", 60)
-
-    #  ENERGY PRICE OVERRIDES from Country_Price_Level.xlsx 
-    iso3 = cdata.get("iso3", "")
-    ep = get_country_energy_prices(iso3)
-    if ep:
-        energy_field = TECH_ENERGY_OVERRIDES.get(tech_name)
-        if energy_field and ep.get(energy_field) is not None:
-            raw_val = ep[energy_field]
-            if energy_field == "eb":
-                cp["electricity"] = round(raw_val * 1000, 2)
-            elif energy_field == "ng":
-                cp["gas"] = round(raw_val * 293.07, 2)
-            elif energy_field == "d":
-                cp["fuel"] = round(raw_val / 0.01, 2)
-
-    #  VARIABLE COST OVERRIDE — local energy price drives country-specific cost 
-    # Two mechanisms depending on whether the tech has a non-zero feedstock_cost:
-    #
-    # (A) feedstock_cost > 0  → scale it by local/global energy price ratio
-    #     Works for: industrial processes, fuels, H2, chemicals — where fuel IS the feedstock.
-    #
-    # (B) feedstock_cost = 0  → calculate an explicit energy-based O&M add-on
-    #     Works for: Solar PV, Wind, EVs, Rail, CCUS, Green DC, etc.
-    #     These techs consume energy in operation (inverters, cooling, compression, charging)
-    #     even though their "feedstock" is free sunlight/wind.
-    #     Formula: energy_opex = installed_capacity_kw × capacity_factor × 8760h
-    #              × auxiliary_fraction × local_energy_price_per_kwh
-    #     auxiliary_fraction: share of gross output consumed internally (tech-specific)
-    ti_local = {k: list(v) for k, v in ti.items()}
-
-    # Auxiliary energy consumption fraction of gross output (tech-specific, conservative estimates)
-    AUXILIARY_FRACTION = {
-        # Power generation — parasitic load / inverter losses / cooling
-        "Solar PV":                                0.02,   # ~2% inverter/tracker/cooling
-        "Onshore Wind":                            0.02,   # ~2% yaw, pitch, control
-        "Offshore Wind (fixed foundation)":        0.03,   # 3% + offshore subsea cable loss
-        "Floating Offshore Wind":                  0.04,   # mooring, extra aux systems
-        "Concentrated Solar Power (CSP)":          0.05,   # heat tracing, pumps, HTF
-        "Ocean / Tidal / Wave Energy":             0.04,   # hydraulic systems, mooring
-        "Small Modular Reactors (SMR)":            0.06,   # coolant pumps, safety systems
-        "Enhanced Geothermal Systems (EGS)":       0.10,   # high-pressure circulation pumps
-        # Storage & Grid — charging losses, control systems
-        "Battery Storage (grid-scale)":            0.04,   # round-trip losses, HVAC for BMS
-        "Long-Duration Energy Storage (LDES)":     0.05,   # compression or pumping
-        "Smart Grid & Grid Modernization":         0.02,   # sensors, comms, control
-        "HVDC Transmission":                       0.03,   # converter station power
-        "Virtual Power Plants (VPP)":              0.01,   # IT infrastructure, comms
-        # Transport — energy for operations/charging infrastructure
-        "Electric Vehicles (EVs)":                 0.08,   # charging infra, grid losses
-        "Electric Aviation (eVTOL/short-haul)":    0.06,   # charging, hangar climate
-        "Rail Electrification":                    0.04,   # substation losses, signalling
-        # Efficiency & Services
-        "Building Energy Efficiency / Retrofits":  0.05,   # residual HVAC/lighting load
-        "Green Data Centers":                      0.15,   # cooling (PUE ~1.15 overhead)
-    }
-
-    if ep:
-        energy_field_cost = TECH_ENERGY_OVERRIDES.get(tech_name)
-        if energy_field_cost and ep.get(energy_field_cost) is not None:
-            local_val = ep[energy_field_cost]   # raw: $/kWh for eb/ng, $/L for d
-            base_feedstock = ti["feedstock_cost"][t]
-
-            if base_feedstock > 0:
-                #  Path A: scale existing feedstock_cost by local/global ratio 
-                if energy_field_cost == "eb":
-                    local_mwh  = local_val * 1000
-                    global_mwh = base_prices.get("electricity", 80)
-                    ratio = local_mwh / global_mwh if global_mwh > 0 else 1.0
-                elif energy_field_cost == "ng":
-                    local_mmbtu  = local_val * 293.07
-                    global_mmbtu = base_prices.get("gas", 8)
-                    ratio = local_mmbtu / global_mmbtu if global_mmbtu > 0 else 1.0
-                elif energy_field_cost == "d":
-                    local_mwh  = local_val / 0.01
-                    global_mwh = base_prices.get("fuel", 250)
-                    ratio = local_mwh / global_mwh if global_mwh > 0 else 1.0
-                else:
-                    ratio = 1.0
-                ratio = max(0.1, min(5.0, ratio))
-                ti_local["feedstock_cost"][t] = round(base_feedstock * ratio, 0)
-
-            else:
-                #  Path B: compute auxiliary energy O&M from first principles 
-                # Only applies to electricity-consuming techs (eb field)
-                if energy_field_cost == "eb":
-                    aux_frac = AUXILIARY_FRACTION.get(tech_name, 0.03)
-                    cap_kw   = ti["installed_capacity"][t] * 1000   # MW → kW
-                    cf       = ti["capacity_factor"][t]
-                    # Annual auxiliary energy (kWh) = cap × CF × 8760h × aux_fraction
-                    annual_aux_kwh = cap_kw * cf * 8760 * aux_frac
-                    # Cost = kWh × local $/kWh
-                    energy_opex = annual_aux_kwh * local_val
-                    ti_local["feedstock_cost"][t] = round(energy_opex, 0)
-
-    #  DIRECT REVENUE PRICE OVERRIDE — local market price per country 
-    dr_override = compute_country_dr_override(tech_name, iso3, ti.get("market_price", [None]*100)[t])
-    if dr_override is not None:
-        cp["_dr_market_price"] = dr_override
-
-    return compute(cp, t, ti_local, dr_price_override=dr_override)
-
-# 
-
-# 
-# SESSION STATE
-# 
-if "ti"               not in st.session_state: st.session_state.ti = {k: list(v) for k,v in DEFAULTS.items()}
-if "p"                not in st.session_state: st.session_state.p  = dict(DEFAULT_PRICES)
-if "ti_draft"         not in st.session_state: st.session_state.ti_draft = {k: list(v) for k,v in DEFAULTS.items()}
-if "results_ready"    not in st.session_state: st.session_state.results_ready = False
-if "mc_cache"         not in st.session_state: st.session_state.mc_cache = {}
-if "selected_country" not in st.session_state: st.session_state.selected_country = None
-
-# 
-# EXTRA CSS  (on top of existing base CSS)
-# 
-st.markdown("""
-<style>
-/*  Sidebar: just logo + branding, no nav clutter  */
-[data-testid="stSidebar"] {
-    min-width: 220px !important; max-width: 220px !important;
-}
-[data-testid="stSidebar"] .stButton > button {
-    background: transparent !important; border: none !important;
-    text-align: left !important; padding: 10px 16px !important;
-    font-size: 0.8rem !important; font-weight: 500 !important;
-    color: #374151 !important; border-radius: 8px !important;
-    transition: all 0.15s !important;
-}
-[data-testid="stSidebar"] .stButton > button:hover {
-    background: #f0fdf4 !important; color: #059669 !important;
-}
-.sb-nav-active button {
-    background: linear-gradient(90deg,#059669,#10b981) !important;
-    color: #fff !important; font-weight: 700 !important;
-}
-
-/*  Top tab bar  */
-.top-tab-bar {
-    display: flex; align-items: center; gap: 4px;
-    padding: 0; margin-bottom: 0;
-}
-.top-tab-pill {
-    padding: 7px 20px; border-radius: 8px 8px 0 0;
-    border: 1.5px solid #e2e8f0; border-bottom: none;
-    font-size: 0.8rem; font-weight: 600; cursor: pointer;
-    background: #f8fafc; color: #6b7280;
-    transition: all 0.15s ease; white-space: nowrap;
-}
-.top-tab-pill:hover { background: #f0fdf4; color: #059669; }
-.top-tab-pill.active {
-    background: #ffffff; color: #059669;
-    border-color: #d1fae5; border-bottom: 2px solid #fff;
-    position: relative; z-index: 2;
-    box-shadow: 0 -2px 8px rgba(5,150,105,0.08);
-}
-.tab-content-wrap {
-    background: #ffffff; border: 1.5px solid #e2e8f0;
-    border-radius: 0 12px 12px 12px;
-    padding: 28px 30px; margin-top: -1px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-}
-
-/*  Setup page: modern card grid  */
-.setup-section-title {
-    font-size: 0.65rem; font-weight: 800; color: #9ca3af;
-    text-transform: uppercase; letter-spacing: 0.14em;
-    margin: 0 0 14px 0; padding-bottom: 8px;
-    border-bottom: 1.5px solid #f1f5f9;
-}
-.param-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 0; border-bottom: 1px solid #f9fafb;
-}
-.param-row:last-child { border-bottom: none; }
-
-/*  Sliders in main area: modern green  */
-[data-testid="stSlider"] > div > div > div > div {
-    background: linear-gradient(90deg, #059669, #34d399) !important;
-    height: 4px !important;
-}
-[data-testid="stSlider"] [role="slider"] {
-    background: #059669 !important;
-    border: 3px solid #ffffff !important;
-    box-shadow: 0 0 0 2px rgba(5,150,105,0.25), 0 2px 8px rgba(5,150,105,0.3) !important;
-    width: 18px !important; height: 18px !important;
-    top: -7px !important;
-    transition: box-shadow 0.15s, transform 0.12s !important;
-}
-[data-testid="stSlider"] [role="slider"]:hover {
-    transform: scale(1.2) !important;
-    box-shadow: 0 0 0 4px rgba(5,150,105,0.18), 0 3px 12px rgba(5,150,105,0.4) !important;
-}
-[data-testid="stSlider"] > div > div {
-    background: #e2e8f0 !important; height: 4px !important; border-radius: 99px !important;
-}
-[data-testid="stSlider"] p {
-    font-size: 0.78rem !important; font-weight: 600 !important; color: #374151 !important;
-}
-
-/*  Apply button: standout green CTA  */
-.apply-btn-wrap .stButton > button {
-    background: linear-gradient(135deg, #059669, #10b981) !important;
-    color: #fff !important; border: none !important;
-    font-size: 0.88rem !important; font-weight: 700 !important;
-    padding: 10px 32px !important; border-radius: 10px !important;
-    box-shadow: 0 4px 16px rgba(5,150,105,0.35) !important;
-    letter-spacing: 0.02em !important;
-    transition: all 0.18s ease !important;
-}
-.apply-btn-wrap .stButton > button:hover {
-    box-shadow: 0 6px 22px rgba(5,150,105,0.45) !important;
-    transform: translateY(-1px) !important;
-}
-
-/*  Section card wrapper  */
-.setup-card {
-    background: #ffffff; border: 1.5px solid #f1f5f9;
-    border-radius: 12px; padding: 20px 22px;
-    margin-bottom: 16px;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
-}
-.setup-card-title {
-    font-size: 0.68rem; font-weight: 800; color: #059669;
-    text-transform: uppercase; letter-spacing: 0.12em;
-    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
-}
-.setup-card-title::after {
-    content: ""; flex: 1; height: 1.5px;
-    background: linear-gradient(90deg, #d1fae5, transparent);
-}
-
-/*  Number inputs in setup  */
-[data-testid="stNumberInput"] input {
-    font-size: 0.82rem !important; border-radius: 8px !important;
-    border: 1.5px solid #e2e8f0 !important;
-    transition: border-color 0.15s !important;
-}
-[data-testid="stNumberInput"] input:focus {
-    border-color: #059669 !important;
-    box-shadow: 0 0 0 3px rgba(5,150,105,0.12) !important;
-}
-
-/*  Selectbox in setup  */
-[data-baseweb="select"] > div {
-    border-radius: 8px !important; border: 1.5px solid #e2e8f0 !important;
-    transition: border-color 0.15s !important;
-}
-[data-baseweb="select"] > div:focus-within {
-    border-color: #059669 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ── Extra CSS helpers for 3-Part layout ──────────────────────────
-st.markdown("""
-<style>
-/* Page headers */
-.page-header {
-    background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
-    border: 1px solid #a7f3d0;
-    border-radius: 14px;
-    padding: 22px 26px 18px;
-    margin-bottom: 22px;
-}
-.page-header-badge {
-    font-size: 0.65rem; font-weight: 800; color: #059669;
-    text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px;
-}
-.page-header-title {
-    font-size: 1.45rem; font-weight: 900; color: #064e3b; line-height: 1.2; margin-bottom: 4px;
-}
-.page-header-sub {
-    font-size: 0.75rem; color: #6b7280; line-height: 1.5;
-}
-
-/* Section headings */
-.sec-head {
-    font-size: 0.75rem; font-weight: 800; color: #111827;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    border-bottom: 2px solid #059669; padding-bottom: 5px;
-    margin-bottom: 12px; margin-top: 4px;
-}
-
-/* KPI cards */
-.kpi-card {
-    background: #f8fafc; border: 1px solid #e5e7eb;
-    border-radius: 10px; padding: 12px 14px; text-align: center;
-}
-.kpi-label {
-    font-size: 0.64rem; font-weight: 700; color: #6b7280;
-    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 4px;
-}
-.kpi-value {
-    font-size: 1.05rem; font-weight: 900; color: #111827; line-height: 1.1;
-}
-.kpi-m-sub {
-    font-size: 0.65rem; color: #9ca3af; margin-top: 3px;
-}
-
-/* Chips */
-.chip       { display:inline-block; border-radius:999px; padding:2px 9px; font-size:0.65rem; font-weight:700; }
-.chip-d     { background:#dcfce7; color:#065f46; }
-.chip-i     { background:#fef3c7; color:#92400e; }
-.chip-off   { background:#f1f5f9; color:#94a3b8; }
-.chip-yes   { background:#dcfce7; color:#065f46; }
-.chip-no    { background:#fee2e2; color:#991b1b; }
-
-/* Param section header */
-.param-section-hdr {
-    font-size:0.68rem; font-weight:800; color:#374151;
-    text-transform:uppercase; letter-spacing:0.08em;
-    border-bottom:1px solid #e5e7eb; padding-bottom:4px; margin-bottom:8px;
-}
-
-/* Sidebar nav buttons — hide default Streamlit chrome */
-[data-testid="stButton"] > button[kind="secondary"] {
-    opacity: 0 !important; height: 0 !important; padding: 0 !important;
-    margin: -4px 0 0 0 !important; position: absolute;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ── Session state init (needed before page logic) ─────────────────
-_N = len(TECHNOLOGIES)
-
-# ══════════════════════════════════════════════════════════════════
-# PAGE ROUTING & SESSION STATE
-# ══════════════════════════════════════════════════════════════════
-
-# Session state init
-for _k, _v in [
-    ("page", "part1"),
-    ("sel_tech_idx", 0),
-    ("policy_scenario", "current"),
-    ("results_ready", False),
-    ("part2_done", False),
-    ("selected_country", None),
-    ("mc_cache", {}),
-    ("vi_cache", {}),
-    ("ti", {k: list(v) for k, v in DEFAULTS.items()}),
-    ("ti_draft", {k: list(v) for k, v in DEFAULTS.items()}),
-    ("p", dict(DEFAULT_PRICES)),
-    ("gp_min", 0.0), ("gp_likely", 0.15), ("gp_max", 0.50),
-    ("conv_min", 20.0), ("conv_likely", 50.0), ("conv_max", 120.0),
-]:
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
-
-N = len(TECHNOLOGIES)
-
-# ── Sidebar ───────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("""
-    <div style="padding:18px 16px 10px;border-bottom:1px solid #e5e7eb;margin-bottom:8px;">
-      <div style="font-size:0.62rem;font-weight:800;color:#9ca3af;text-transform:uppercase;
-                  letter-spacing:0.15em;margin-bottom:4px;">MIDDIC</div>
-      <div style="font-size:1.05rem;font-weight:800;color:#111827;line-height:1.2;">
-        Viability Engine</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    _parts = [
-        ("part1", "A", "Overview", "System mapping & MBM coverage"),
-        ("part2", "B", "Revenue Estimation", "Lifetime Y+X via Monte Carlo"),
-        ("part3", "C", "Viability Analytics", "VI = (Y+X)/(GP × C_conv)"),
-    ]
-    for _pid, _badge, _title, _sub in _parts:
-        _active = st.session_state.page == _pid
-        _bg = "#f0fdf4" if _active else "transparent"
-        _bc = "#059669" if _active else "transparent"
-        _tc = "#065f46" if _active else "#374151"
-        st.markdown(f"""
-        <div style="background:{_bg};border:1.5px solid {_bc};border-radius:10px;
-                    padding:10px 12px;margin-bottom:6px;cursor:pointer;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <div style="width:22px;height:22px;border-radius:50%;background:{'#059669' if _active else '#e5e7eb'};
-                        display:flex;align-items:center;justify-content:center;
-                        font-size:0.62rem;font-weight:800;color:{'white' if _active else '#6b7280'};">{_badge}</div>
-            <div>
-              <div style="font-size:0.78rem;font-weight:700;color:{_tc};">{_title}</div>
-              <div style="font-size:0.65rem;color:#9ca3af;">{_sub}</div>
-            </div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button(f"Go to {_title}", key=f"nav_{_pid}", use_container_width=True):
-            st.session_state.page = _pid
-            st.rerun()
-
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    # Reset
-    if st.button("Reset All", key="reset_all"):
-        for _k in ["results_ready","part2_done","selected_country","mc_cache","vi_cache"]:
-            st.session_state[_k] = {} if "cache" in _k else (False if "ready" in _k or "done" in _k else None)
-        st.session_state.ti = {k: list(v) for k, v in DEFAULTS.items()}
-        st.session_state.ti_draft = {k: list(v) for k, v in DEFAULTS.items()}
-        st.session_state.p = dict(DEFAULT_PRICES)
-        st.rerun()
-
-# ══════════════════════════════════════════════════════════════════
-# SHARED STATE
-# ══════════════════════════════════════════════════════════════════
-sel_tech_idx = st.session_state.sel_tech_idx
-sel_tech     = TECHNOLOGIES[sel_tech_idx]
-pol_sc       = st.session_state.policy_scenario
-ti           = st.session_state.ti
-
-# Policy scenario multipliers for MBM prices
-SCENARIO_MULT = {
-    "current":  {"ets":1.0,"ctax":1.0,"fuel":1.0,"cfd":1.0,"ccfd":1.0,"cbam":1.0,
-                 "corsia":1.0,"imo":1.0,"vcm":1.0,"amc":1.0,"feebate":1.0},
-    "net_zero": {"ets":1.6,"ctax":1.5,"fuel":1.3,"cfd":1.2,"ccfd":1.4,"cbam":1.3,
-                 "corsia":1.5,"imo":1.4,"vcm":1.3,"amc":1.2,"feebate":1.2},
-    "worst":    {"ets":0.4,"ctax":0.3,"fuel":0.7,"cfd":0.6,"ccfd":0.4,"cbam":0.5,
-                 "corsia":0.5,"imo":0.6,"vcm":0.3,"amc":0.5,"feebate":0.4},
-}
-def get_scenario_prices(base_prices, scenario):
-    mult = SCENARIO_MULT.get(scenario, SCENARIO_MULT["current"])
-    return {k: v * mult.get(k, 1.0) for k, v in base_prices.items()}
-
-eff_prices = get_scenario_prices(st.session_state.p, pol_sc)
-
-# ══════════════════════════════════════════════════════════════════
-# PART 1 — OVERVIEW
-# ══════════════════════════════════════════════════════════════════
-if st.session_state.page == "part1":
-
-    # Header
-    st.markdown(f"""
-    <div class="page-header">
-      <div class="page-header-badge">Part A  &middot;  Overview</div>
-      <div class="page-header-title">MIDDIC Viability Engine</div>
-      <div class="page-header-sub">Explore sustainable innovations, the market-based mechanisms that affect them, and their geographic distribution</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Top stats
-    _total_interventions = sum(
-        len(cd["techs"].get(t, {}))
-        for cd in COUNTRY_DATA_RAW.values()
-        for t in TECHNOLOGIES
-    )
-    _n_countries = len(COUNTRY_DATA_RAW)
-    _n_mechs = 11
-    _n_tech = len(TECHNOLOGIES)
-    st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:22px;">
-      {''.join([
-        f'<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:14px 16px;text-align:center;">'
-        f'<div style="font-size:1.4rem;font-weight:800;color:#111827;">{v}</div>'
-        f'<div style="font-size:0.67rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:0.08em;margin-top:3px;">{lbl}</div>'
-        f'</div>'
-        for v, lbl in [(_n_tech,"Technologies"), (_total_interventions,"Total Interventions"),
-                       (_n_countries,"Countries Covered"), (_n_mechs,"Mechanism Types"), ("5","Mechanism Categories")]
-      ])}
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Tabs
-    _tab_ov, _tab_mech, _tab_countries, _tab_scenarios = st.tabs(["Overview", "Mechanisms", "Countries", "Scenarios"])
-
-    with _tab_ov:
-        _col_left, _col_right = st.columns([1.6, 1])
-        with _col_left:
-            st.markdown('<div class="sec-head">Global Coverage Map</div>', unsafe_allow_html=True)
-
-            # Tech selector
-            _cat_filter = st.selectbox("Select Technology", TECHNOLOGIES,
-                                       index=sel_tech_idx, key="p1_tech_sel")
-            _new_idx = TECHNOLOGIES.index(_cat_filter)
-            if _new_idx != st.session_state.sel_tech_idx:
-                st.session_state.sel_tech_idx = _new_idx
-                st.rerun()
-
-            # Mechanism scenario selector
-            _sc_opts = {"current": "1  Current Mechanisms", "net_zero": "2  Net-Zero Aligned", "worst": "3  Worst Case"}
-            _sc_sel = st.selectbox("Policy Scenario", list(_sc_opts.values()),
-                                   index=list(_sc_opts.keys()).index(pol_sc), key="p1_sc")
-            _new_sc = [k for k,v in _sc_opts.items() if v == _sc_sel][0]
-            if _new_sc != pol_sc:
-                st.session_state.policy_scenario = _new_sc
-                st.rerun()
-
-            # Build mechanism count per country for selected tech
-            _map_rows = []
-            for _c, _cd in COUNTRY_DATA_RAW.items():
-                _tm = _cd["techs"].get(sel_tech, {})
-                _n_m = len(_tm)
-                _coords = COUNTRY_COORDS.get(_c)
-                if not _coords: continue
-                # Apply scenario weighting to mechanism count
-                _sc_mult = {"current":1.0,"net_zero":1.3,"worst":0.6}.get(pol_sc, 1.0)
-                _effective_mechs = min(11, round(_n_m * _sc_mult)) if pol_sc != "current" else _n_m
-                _color = "#065f46" if _effective_mechs >= 5 else \
-                         "#059669" if _effective_mechs >= 3 else \
-                         "#6ee7b7" if _effective_mechs >= 1 else "#e5e7eb"
-                _map_rows.append({
-                    "Country": _c, "lat": _coords[0], "lon": _coords[1],
-                    "Mechanisms": _effective_mechs, "_color": _color,
-                    "ISO3": _cd.get("iso3",""), "Region": _cd.get("region",""),
-                })
-
-            _df_map1 = pd.DataFrame(_map_rows)
-            _viable_df = _df_map1[_df_map1["Mechanisms"] >= 5]
-            _med_df    = _df_map1[(_df_map1["Mechanisms"] >= 3) & (_df_map1["Mechanisms"] < 5)]
-            _low_df    = _df_map1[(_df_map1["Mechanisms"] >= 1) & (_df_map1["Mechanisms"] < 3)]
-            _none_df   = _df_map1[_df_map1["Mechanisms"] == 0]
-
-            _fig1 = go.Figure()
-            for _df_g, _name, _col, _sz in [
-                (_viable_df, "5+ Mechanisms", "#065f46", 9),
-                (_med_df,    "3–4 Mechanisms","#059669", 7),
-                (_low_df,    "1–2 Mechanisms","#6ee7b7", 6),
-                (_none_df,   "No Mechanisms", "#d1d5db", 4),
-            ]:
-                if len(_df_g):
-                    _fig1.add_trace(go.Scattergeo(
-                        lat=_df_g["lat"], lon=_df_g["lon"],
-                        text=_df_g["Country"],
-                        hovertemplate="<b>%{text}</b><br>Mechanisms: %{customdata}<extra></extra>",
-                        customdata=_df_g["Mechanisms"],
-                        mode="markers",
-                        marker=dict(size=_sz, color=_col, opacity=0.85,
-                                    line=dict(width=0.5, color="#ffffff")),
-                        name=_name,
-                    ))
-            _fig1.update_geos(showcountries=True, countrycolor="#d1d5db",
-                              showland=True, landcolor="#f9fafb",
-                              showocean=True, oceancolor="#e0f2fe",
-                              showframe=False, projection_type="equirectangular",
-                              lataxis_range=[-60,85])
-            _fig1.update_layout(**pl_geo(380,ml=0,mr=0,mt=4,mb=0),
-                                geo=dict(bgcolor="rgba(0,0,0,0)"),
-                                legend=dict(orientation="h",x=0,y=-0.02,
-                                           bgcolor="rgba(255,255,255,0.9)",
-                                           bordercolor="#e2e8f0",borderwidth=1,
-                                           font=dict(size=9)))
-            st.plotly_chart(_fig1, use_container_width=True)
-
-            # Top 10 countries by mechanism count
-            st.markdown('<div class="sec-head">Top Countries by Mechanism Count</div>', unsafe_allow_html=True)
-            _top10 = _df_map1.nlargest(10, "Mechanisms")[["Country","ISO3","Region","Mechanisms"]]
-            st.dataframe(_top10.reset_index(drop=True), use_container_width=True, height=240)
-
-        with _col_right:
-            st.markdown('<div class="sec-head">Selected Technology</div>', unsafe_allow_html=True)
-            _cat_idx = TECHNOLOGIES.index(sel_tech)
-            _cat_name = TECH_CATEGORIES[_cat_idx] if _cat_idx < len(TECH_CATEGORIES) else "General"
-            st.markdown(f"""
-            <div style="background:#f0fdf4;border:1px solid #a7f3d0;border-radius:12px;padding:16px 18px;margin-bottom:16px;">
-              <div style="font-size:0.72rem;font-weight:600;color:#059669;margin-bottom:4px;">{_cat_name}</div>
-              <div style="font-size:1.0rem;font-weight:800;color:#064e3b;">{sel_tech}</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown('<div class="sec-head">Affecting Mechanisms</div>', unsafe_allow_html=True)
-            _mech_row = MBM_MATRIX[sel_tech_idx]
-            _mech_names = list(MBM_LABELS.keys())
-            for _mi, (_mk, _ml) in enumerate(MBM_LABELS.items()):
-                _mval = _mech_row[_mi]
-                if _mval is not None:
-                    _is_direct = _mval == "D"
-                    _badge_cls = "chip-d" if _is_direct else "chip-i"
-                    _badge_txt = "Direct" if _is_direct else "Indirect"
-                    # Count countries
-                    _n_c = sum(1 for _cd in COUNTRY_DATA_RAW.values()
-                               if _mk in _cd["techs"].get(sel_tech, {}))
-                    st.markdown(f"""
-                    <div style="display:flex;justify-content:space-between;align-items:center;
-                                padding:7px 0;border-bottom:1px solid #f1f5f9;">
-                      <div style="font-size:0.75rem;font-weight:600;color:#111827;">{_ml[0] if isinstance(_ml,tuple) else _mk}</div>
-                      <div style="display:flex;gap:6px;align-items:center;">
-                        <span class="chip {_badge_cls}" style="font-size:0.62rem;">{_badge_txt}</span>
-                        <span style="font-size:0.68rem;color:#6b7280;">{_n_c} countries</span>
-                      </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-    with _tab_mech:
-        st.markdown('<div class="sec-head">Mechanism Scenarios</div>', unsafe_allow_html=True)
-        _sc1, _sc2, _sc3 = st.columns(3)
-        for _col_sc, _sc_k, _sc_n, _sc_desc, _sc_imp, _sc_color in [
-            (_sc1, "current", "1 Current Mechanisms", "Based on mechanisms currently implemented worldwide.", "Moderate", "#f59e0b"),
-            (_sc2, "net_zero", "2 Net-Zero Aligned", "Assumes strengthened and expanded mechanisms aligned with 1.5°C pathways.", "High", "#059669"),
-            (_sc3, "worst", "3 Worst Case", "Assumes weak policy, low carbon pricing and limited mechanism expansion.", "Low", "#dc2626"),
-        ]:
-            _active_sc = st.session_state.policy_scenario == _sc_k
-            _bord = "#059669" if _active_sc else "#e5e7eb"
-            _col_sc.markdown(f"""
-            <div style="border:2px solid {_bord};border-radius:12px;padding:16px;background:{'#f0fdf4' if _active_sc else '#ffffff'};">
-              <div style="font-size:0.78rem;font-weight:800;color:#111827;margin-bottom:6px;">{_sc_n}</div>
-              <div style="font-size:0.72rem;color:#6b7280;margin-bottom:10px;">{_sc_desc}</div>
-              <div style="font-size:0.68rem;font-weight:700;color:{_sc_color};">Impact on Viability Index: {_sc_imp}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            if _col_sc.button(f"Select Scenario", key=f"sc_btn_{_sc_k}"):
-                st.session_state.policy_scenario = _sc_k
-                st.rerun()
-
-        st.markdown('<div class="sec-head" style="margin-top:20px;">Mechanism Category Breakdown</div>', unsafe_allow_html=True)
-        _mech_cats = {
-            "Carbon Pricing (ETS, Tax, CBAM)": ["ETS", "Carbon Tax", "CBAM"],
-            "Regulatory Mandates": ["Fuel Mandate", "CORSIA", "IMO Levy"],
-            "Market Mechanisms (CfD, CCfD, VCM)": ["CfD", "CCfD", "VCM/CDM"],
-            "Incentives & Support (Subsidies, AMC)": ["AMC"],
-            "Others (Feebate, IMO Levy)": ["Feebate"],
-        }
-        _tech_mechs = MBM_MATRIX[sel_tech_idx]
-        _mech_key_list = list(MBM_LABELS.keys())
-        for _cat_name_m, _mechs_in_cat in _mech_cats.items():
-            _active_in_cat = [m for m in _mechs_in_cat
-                               if any(m.lower() in mk.lower() for mk in _mech_key_list
-                                      if _tech_mechs[_mech_key_list.index(mk)] is not None)]
-            _has = len(_active_in_cat) > 0
-            st.markdown(f"""
-            <div style="display:flex;justify-content:space-between;align-items:center;
-                        padding:10px 14px;margin-bottom:6px;border-radius:8px;
-                        background:{'#f0fdf4' if _has else '#f9fafb'};border:1px solid {'#a7f3d0' if _has else '#f1f5f9'};">
-              <div style="font-size:0.75rem;font-weight:700;color:{'#065f46' if _has else '#9ca3af'};">{_cat_name_m}</div>
-              <span class="chip {'chip-d' if _has else 'chip-off'}">{'Active' if _has else 'Not Active'}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-    with _tab_countries:
-        _tc1, _tc2 = st.columns([1,1])
-        with _tc1:
-            _reg_f = st.selectbox("Region", ["All"] + sorted(set(v["region"] for v in COUNTRY_DATA_RAW.values())), key="p1_reg")
-        with _tc2:
-            _sort_f = st.selectbox("Sort by", ["Most Mechanisms", "Country Name"], key="p1_sort")
-
-        _country_rows = []
-        for _c, _cd in COUNTRY_DATA_RAW.items():
-            if _reg_f != "All" and _cd["region"] != _reg_f: continue
-            _tm = _cd["techs"].get(sel_tech, {})
-            _country_rows.append({
-                "Country": _c, "Region": _cd["region"], "ISO3": _cd.get("iso3",""),
-                "Mechanisms": len(_tm),
-                "Types": ", ".join(_tm.keys()) or "—",
-            })
-        _df_ct = pd.DataFrame(_country_rows)
-        if _sort_f == "Most Mechanisms":
-            _df_ct = _df_ct.sort_values("Mechanisms", ascending=False)
-        else:
-            _df_ct = _df_ct.sort_values("Country")
-        st.dataframe(_df_ct.reset_index(drop=True), use_container_width=True, height=420)
-
-    with _tab_scenarios:
-        st.markdown("""
-        <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:18px 22px;margin-bottom:20px;">
-          <div style="font-size:0.75rem;font-weight:700;color:#111827;margin-bottom:8px;">How Scenarios Affect Viability</div>
-          <div style="font-size:0.72rem;color:#6b7280;line-height:1.6;">
-            Scenarios adjust MBM price levels to reflect different policy trajectories.
-            The <b>Current</b> scenario uses prices as observed today.
-            The <b>Net-Zero Aligned</b> scenario assumes carbon prices increase 30–60% and mandates expand.
-            The <b>Worst Case</b> scenario models policy rollback with prices dropping 40–70%.
-            All scenarios feed into the Revenue Estimation and Viability Index calculations.
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-        _s1, _s2, _s3 = st.columns(3)
-        for _s_col, _sc_k, _sc_lbl in [(_s1,"current","Current"),(_s2,"net_zero","Net-Zero"),(_s3,"worst","Worst Case")]:
-            _mult = SCENARIO_MULT[_sc_k]
-            _s_col.markdown(f'<div class="sec-head">{_sc_lbl}</div>', unsafe_allow_html=True)
-            for _mk, _mv in list(_mult.items())[:6]:
-                _base = st.session_state.p.get(_mk, 0)
-                _adj  = _base * _mv
-                _s_col.markdown(f"""
-                <div style="display:flex;justify-content:space-between;padding:4px 0;
-                            border-bottom:1px solid #f1f5f9;font-size:0.72rem;">
-                  <span style="color:#374151;">{MBM_LABELS.get(_mk, (_mk,""))[0] if isinstance(MBM_LABELS.get(_mk),tuple) else _mk.upper()}</span>
-                  <span style="font-weight:700;color:{'#059669' if _mv>=1 else '#dc2626'};">${_adj:.0f}</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-    # Navigate to Part 2
-    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-    _nb1, _nb2, _nb3 = st.columns([1,2,1])
-    with _nb2:
-        if st.button("Go to Part B: Revenue Estimation →", key="to_part2", use_container_width=True, type="primary"):
-            st.session_state.page = "part2"
-            st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════
-# PART 2 — REVENUE ESTIMATION
-# ══════════════════════════════════════════════════════════════════
-elif st.session_state.page == "part2":
-
-    st.markdown(f"""
-    <div class="page-header">
-      <div class="page-header-badge">Part B  &middot;  Revenue Estimation</div>
-      <div class="page-header-title">Lifetime Revenue (Y + X)</div>
-      <div class="page-header-sub">Quantify lifetime value creation for each technology-country pair using Monte Carlo analysis  &middot;  Scenario: {{"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}}[pol_sc]</div>
-    </div>
-    """.replace("{\"current\":\"Current\",\"net_zero\":\"Net-Zero Aligned\",\"worst\":\"Worst Case\"}[pol_sc]",
-               {"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}.get(pol_sc,"Current")),
-    unsafe_allow_html=True)
-
-    # Top controls
-    _pc1, _pc2, _pc3 = st.columns([2,1,1])
-    with _pc1:
-        _tech_p2 = st.selectbox("Selected Technology", TECHNOLOGIES,
-                                 index=sel_tech_idx, key="p2_tech")
-        _new_idx2 = TECHNOLOGIES.index(_tech_p2)
-        if _new_idx2 != st.session_state.sel_tech_idx:
-            st.session_state.sel_tech_idx = _new_idx2
-            st.rerun()
-    with _pc2:
-        _sc_p2 = st.selectbox("Policy Scenario",
-                               ["Current Mechanisms","Net-Zero Aligned","Worst Case"],
-                               index=["current","net_zero","worst"].index(pol_sc), key="p2_sc")
-        _new_sc2 = {"Current Mechanisms":"current","Net-Zero Aligned":"net_zero","Worst Case":"worst"}[_sc_p2]
-        if _new_sc2 != pol_sc:
-            st.session_state.policy_scenario = _new_sc2
-            st.rerun()
-    with _pc3:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        _run_p2 = st.button("Recalculate Revenue", key="run_p2", type="primary", use_container_width=True)
-
-    # Technology inputs
-    with st.expander("Technology Inputs — Adjust to update revenue estimates", expanded=False):
-        td_ = st.session_state.ti_draft
-        t_sp = st.session_state.sel_tech_idx
-        def tni(label, key, **kwargs):
-            return st.number_input(label, key=key, **kwargs)
-        _ti1, _ti2, _ti3 = st.columns(3)
-        with _ti1:
-            st.markdown('<div class="param-section-hdr">Capacity & Lifetime</div>', unsafe_allow_html=True)
-            td_["installed_capacity"][t_sp]  = tni("Installed Capacity (MW)", f"p2_ic{t_sp}", min_value=1, max_value=50000, value=int(td_["installed_capacity"][t_sp]), step=50)
-            td_["annual_output"][t_sp]       = tni("Annual Output (MWh/yr)", f"p2_ao{t_sp}", min_value=0, max_value=500_000_000, value=int(td_["annual_output"][t_sp]), step=1000)
-            td_["project_lifetime"][t_sp]    = tni("Project Lifetime (years)", f"p2_pl{t_sp}", min_value=5, max_value=60, value=int(td_["project_lifetime"][t_sp]), step=1)
-        with _ti2:
-            st.markdown('<div class="param-section-hdr">Cost Structure</div>', unsafe_allow_html=True)
-            td_["capex_per_kw"][t_sp]    = tni("CAPEX (USD/kW)", f"p2_ck{t_sp}", min_value=0, max_value=30000, value=int(td_["capex_per_kw"][t_sp]), step=100)
-            td_["opex_pct"][t_sp]        = tni("OPEX (% of CAPEX/yr)", f"p2_op{t_sp}", min_value=0.0, max_value=0.20, value=float(td_["opex_pct"][t_sp]), step=0.005, format="%.3f")
-            td_["wacc"][t_sp]            = tni("WACC (decimal)", f"p2_wc{t_sp}", min_value=0.01, max_value=0.25, value=float(td_["wacc"][t_sp]), step=0.005, format="%.3f")
-        with _ti3:
-            st.markdown('<div class="param-section-hdr">Abatement Profile</div>', unsafe_allow_html=True)
-            td_["co2_abated_factor"][t_sp] = tni("CO₂ Abated (tCO₂/unit)", f"p2_ca{t_sp}", min_value=0.0, max_value=2.0, value=float(td_["co2_abated_factor"][t_sp]), step=0.01, format="%.2f")
-        st.session_state.ti_draft = td_
-
-        if st.button("Apply Inputs", key="apply_p2_inputs"):
-            st.session_state.ti = {k: list(v) for k,v in td_.items()}
-            st.session_state.results_ready = True
-            st.rerun()
-
-    # Compute results
-    ti = st.session_state.ti
-    t_r = st.session_state.sel_tech_idx
-    tech_name = TECHNOLOGIES[t_r]
-
-    # Build country revenue table
-    @st.cache_data(show_spinner=False)
-    def compute_all_countries(tech_idx, scenario, ti_hash):
-        rows = []
-        _eff_p = get_scenario_prices(DEFAULT_PRICES, scenario)
-        for _c, _cd in COUNTRY_DATA_RAW.items():
-            _rcp = COUNTRY_CARBON_PRICES.get(_c)
-            _cp = dict(_eff_p)
-            if _rcp:
-                _tm = _cd["techs"].get(TECHNOLOGIES[tech_idx], {})
-                if "ETS" in _tm:      _cp["ets"]  = _rcp * SCENARIO_MULT[scenario].get("ets",1)
-                elif "Carbon Tax" in _tm: _cp["ctax"] = _rcp * SCENARIO_MULT[scenario].get("ctax",1)
-            _r = compute_country_excel(_c, _cp, tech_idx, ti)
-            _lt = ti["project_lifetime"][tech_idx]
-            _cap = ti["installed_capacity"][tech_idx]*1000*ti["capex_per_kw"][tech_idx]
-            _w   = ti["wacc"][tech_idx]
-            _npv = -_cap + sum((_r["mb"]*(1.05**(y-1))-(_r["tc"]-_r["ac"]))/(1+_w)**y for y in range(1,_lt+1))
-            _mb_lifetime = _r["mb"] * _lt
-            _iso = _cd.get("iso3","")
-            _coords = COUNTRY_COORDS.get(_c)
-            rows.append({
-                "Country": _c, "ISO3": _iso, "Region": _cd.get("region",""),
-                "Y_sub": round(_r["mb"]*0.4/1e6,2),   # approximate Y (subsidies 40% of MBM)
-                "X_cost": round(_r["mb"]*0.6/1e6,2),  # approximate X (avoided costs 60%)
-                "Total_YX": round(_r["mb"]/1e6,2),
-                "Total_YX_life": round(_mb_lifetime/1e6,1),
-                "NPV": round(_npv/1e6,1),
-                "TC": round(_r["tc"]/1e6,2),
-                "RC": round(_r["mb"]/_r["tc"] if _r["tc"]>0 else 0, 2),
-                "_lat": _coords[0] if _coords else None,
-                "_lon": _coords[1] if _coords else None,
-            })
-        return pd.DataFrame(rows).sort_values("Total_YX_life", ascending=False).reset_index(drop=True)
-
-    _ti_hash = str(hash(str({k:v[t_r] for k,v in ti.items()})))
-    df_rev = compute_all_countries(t_r, pol_sc, _ti_hash)
-    _n_c = len(df_rev)
-
-    # KPI Bar
-    _avg_annual = df_rev["Total_YX"].mean()
-    _total_life = df_rev["Total_YX_life"].sum()
-    _lt = ti["project_lifetime"][t_r]
-    _p50_life = df_rev["Total_YX_life"].median()
-    _best_c = df_rev.iloc[0]["Country"]
-
-    st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px;">
-      {''.join([
-        f'<div class="kpi-card"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>'
-        for val, lbl in [
-            (f"{_n_c}", "Countries Analysed"),
-            (f"${_avg_annual:.1f}M/yr", "Avg Annual Revenue (P50)"),
-            (f"${_p50_life:.0f}M", f"Total Lifetime ({_lt} yrs) P50"),
-            (f"${_total_life/1000:.1f}B", "Portfolio Total Y+X"),
-            (_best_c[:16], "Highest Revenue Country"),
-            ("1 of 44", "Technology Rank"),
-        ]
-      ])}
-    </div>
-    """, unsafe_allow_html=True)
-
-    _r2c1, _r2c2 = st.columns([1.6, 1])
-
-    with _r2c1:
-        st.markdown('<div class="sec-head">Revenue Map  (Total Y+X Lifetime, USD M)</div>', unsafe_allow_html=True)
-        _df_pins2 = df_rev[df_rev["_lat"].notna()].copy()
-        _top_q = _df_pins2["Total_YX_life"].quantile(0.75)
-        _fig2 = go.Figure()
-        for _tier, _mask, _col, _sz in [
-            ("High Revenue (top 25%)", _df_pins2["Total_YX_life"] >= _top_q, "#065f46", 9),
-            ("Medium Revenue", (_df_pins2["Total_YX_life"] > 0) & (_df_pins2["Total_YX_life"] < _top_q), "#059669", 6),
-            ("No Revenue", _df_pins2["Total_YX_life"] <= 0, "#d1d5db", 4),
-        ]:
-            _df_t = _df_pins2[_mask]
-            if len(_df_t):
-                _fig2.add_trace(go.Scattergeo(
-                    lat=_df_t["_lat"], lon=_df_t["_lon"],
-                    text=_df_t["Country"],
-                    customdata=_df_t[["Country","Total_YX_life","Total_YX","Y_sub","X_cost"]].values,
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>"
-                        "Lifetime Y+X: <b>$%{customdata[1]:.0f}M</b><br>"
-                        "Annual Y+X: $%{customdata[2]:.1f}M<br>"
-                        "Y (Subsidies): $%{customdata[3]:.1f}M | X (Avoided): $%{customdata[4]:.1f}M"
-                        "<extra></extra>"
-                    ),
-                    mode="markers",
-                    marker=dict(size=_sz, color=_col, opacity=0.85,
-                                line=dict(width=0.5, color="#ffffff")),
-                    name=_tier,
-                ))
-        _fig2.update_geos(showcountries=True, countrycolor="#d1d5db",
-                          showland=True, landcolor="#f9fafb",
-                          showocean=True, oceancolor="#e0f2fe",
-                          showframe=False, projection_type="equirectangular",
-                          lataxis_range=[-60,85])
-        _fig2.update_layout(**pl_geo(420,ml=0,mr=0,mt=4,mb=0),
-                            geo=dict(bgcolor="rgba(0,0,0,0)"),
-                            legend=dict(orientation="h",x=0,y=-0.02,
-                                       bgcolor="rgba(255,255,255,0.9)",
-                                       bordercolor="#e2e8f0",borderwidth=1,font=dict(size=9)))
-        st.plotly_chart(_fig2, use_container_width=True)
-
-    with _r2c2:
-        st.markdown('<div class="sec-head">Revenue Distribution (Monte Carlo)</div>', unsafe_allow_html=True)
-        _mc_key_p2 = f"mc_{t_r}_{pol_sc}"
-        if _mc_key_p2 not in st.session_state.mc_cache:
-            with st.spinner("Running 500 simulations…"):
-                st.session_state.mc_cache[_mc_key_p2] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
-        _mc2 = st.session_state.mc_cache[_mc_key_p2]
-
-        _fig_box = go.Figure()
-        _npv_arr = [x/1e6 for x in _mc2["npv_distribution"]]
-        _fig_box.add_trace(go.Box(
-            y=_npv_arr, name="NPV Distribution",
-            marker_color="#059669", line_color="#047857",
-            boxpoints="outliers", jitter=0.3,
-        ))
-        _fig_box.update_layout(**pl(280), yaxis_title="NPV (USD Million)")
-        st.plotly_chart(_fig_box, use_container_width=True)
-
-        st.markdown(f"""
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;">
-          <div class="kpi-card"><div class="kpi-label">P50 Lifetime Y+X</div>
-            <div class="kpi-value">${_mc2["npv_p50"]/1e6:.0f}M</div></div>
-          <div class="kpi-card"><div class="kpi-label">P5–P95 Range</div>
-            <div class="kpi-value">${_mc2["npv_p10"]/1e6:.0f}–{_mc2["npv_p90"]/1e6:.0f}M</div></div>
-          <div class="kpi-card"><div class="kpi-label">Prob. Positive</div>
-            <div class="kpi-value">{_mc2["prob_positive"]*100:.0f}%</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # Revenue composition donut
-        st.markdown('<div class="sec-head" style="margin-top:12px;">Revenue Composition (P50)</div>', unsafe_allow_html=True)
-        _avg_y = df_rev["Y_sub"].mean()
-        _avg_x = df_rev["X_cost"].mean()
-        _fig_pie = go.Figure(go.Pie(
-            labels=["Y: Subsidies/Support","X: Compliance Cost Avoided"],
-            values=[_avg_y, _avg_x],
-            hole=0.6,
-            marker_colors=["#059669","#6ee7b7"],
-            textfont=dict(size=9),
-        ))
-        _fig_pie.update_layout(**pl(200,ml=0,mr=0,mt=0,mb=0))
-        st.plotly_chart(_fig_pie, use_container_width=True)
-
-    # Detailed country breakdown table
-    st.markdown('<div class="sec-head">Revenue Breakdown by Country</div>', unsafe_allow_html=True)
-    _tbl_filter_reg = st.selectbox("Filter by Region",
-                                   ["All"] + sorted(df_rev["Region"].unique()), key="p2_reg_filter")
-    _df_show = df_rev if _tbl_filter_reg == "All" else df_rev[df_rev["Region"] == _tbl_filter_reg]
-    st.dataframe(
-        _df_show[["Country","Region","Y_sub","X_cost","Total_YX","Total_YX_life","NPV","RC"]].rename(columns={
-            "Y_sub":"Y Subsidies ($M/yr)","X_cost":"X Avoided ($M/yr)",
-            "Total_YX":"Total Y+X ($M/yr)","Total_YX_life":f"Lifetime ({_lt}yr) $M",
-            "NPV":"NPV ($M)","RC":"R/C Ratio"
-        }).reset_index(drop=True),
-        use_container_width=True, height=320
-    )
-
-    # Navigation
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    _nav1, _nav2, _nav3 = st.columns([1,1,1])
-    with _nav1:
-        if st.button("← Back to Overview", key="p2_back"):
-            st.session_state.page = "part1"; st.rerun()
-    with _nav3:
-        if st.button("Go to Part C: Viability Analytics →", key="to_part3", type="primary"):
-            st.session_state.page = "part3"; st.rerun()
-
-
-# ══════════════════════════════════════════════════════════════════
-# PART 3 — VIABILITY ANALYTICS
-# ══════════════════════════════════════════════════════════════════
-elif st.session_state.page == "part3":
-
-    st.markdown(f"""
-    <div class="page-header">
-      <div class="page-header-badge">Part C  &middot;  Viability Analytics</div>
-      <div class="page-header-title">Viability Index</div>
-      <div class="page-header-sub">VI = (Y + X) / (GP × C<sub>conventional</sub>)  &middot;  VI ≥ 1 means viable  &middot;  Scenario: {{"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}}[pol_sc]</div>
-    </div>
-    """.replace("{\"current\":\"Current\",\"net_zero\":\"Net-Zero Aligned\",\"worst\":\"Worst Case\"}[pol_sc]",
-               {"current":"Current","net_zero":"Net-Zero Aligned","worst":"Worst Case"}.get(pol_sc,"Current")),
-    unsafe_allow_html=True)
-
-    # Controls row
-    _p3c1, _p3c2, _p3c3 = st.columns([2,1,1])
-    with _p3c1:
-        _tech_p3 = st.selectbox("Technology", TECHNOLOGIES, index=sel_tech_idx, key="p3_tech")
-        _ni3 = TECHNOLOGIES.index(_tech_p3)
-        if _ni3 != st.session_state.sel_tech_idx:
-            st.session_state.sel_tech_idx = _ni3; st.rerun()
-    with _p3c2:
-        _sc_p3 = st.selectbox("Policy Scenario",
-                               ["Current Mechanisms","Net-Zero Aligned","Worst Case"],
-                               index=["current","net_zero","worst"].index(pol_sc), key="p3_sc")
-        _nsc3 = {"Current Mechanisms":"current","Net-Zero Aligned":"net_zero","Worst Case":"worst"}[_sc_p3]
-        if _nsc3 != pol_sc:
-            st.session_state.policy_scenario = _nsc3; st.rerun()
-
-    # VI inputs
-    st.markdown('<div class="sec-head">VI Inputs  —  Adjust to update Viability Index estimates</div>', unsafe_allow_html=True)
-    _vi1, _vi2, _vi3 = st.columns(3)
-    with _vi1:
-        st.markdown("""
-        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
-          Green Premium (GP) Range<br>
-          <span style="font-weight:400;color:#6b7280;font-size:0.68rem;">
-            Expected % premium of green product over conventional</span>
-        </div>
-        """, unsafe_allow_html=True)
-        _gp_min    = st.slider("GP Min (%)",    0, 30, int(st.session_state.gp_min*100),    key="gp_min_sl") / 100
-        _gp_likely = st.slider("GP Likely (%)", 5, 50, int(st.session_state.gp_likely*100), key="gp_likely_sl") / 100
-        _gp_max    = st.slider("GP Max (%)",   10, 80, int(st.session_state.gp_max*100),    key="gp_max_sl") / 100
-        st.session_state.gp_min    = _gp_min
-        st.session_state.gp_likely = _gp_likely
-        st.session_state.gp_max    = _gp_max
-
-    with _vi2:
-        st.markdown("""
-        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
-          Conventional Price (C_conv) Range<br>
-          <span style="font-weight:400;color:#6b7280;font-size:0.68rem;">
-            Price of conventional product/energy (USD/MWh or USD/unit)</span>
-        </div>
-        """, unsafe_allow_html=True)
-        _cv_min    = st.slider("C_conv Min",    10, 50, int(st.session_state.conv_min),    key="cv_min_sl")
-        _cv_likely = st.slider("C_conv Likely", 30, 120, int(st.session_state.conv_likely), key="cv_likely_sl")
-        _cv_max    = st.slider("C_conv Max",    50, 200, int(st.session_state.conv_max),   key="cv_max_sl")
-        st.session_state.conv_min    = float(_cv_min)
-        st.session_state.conv_likely = float(_cv_likely)
-        st.session_state.conv_max    = float(_cv_max)
-
-    with _vi3:
-        st.markdown("""
-        <div style="font-size:0.72rem;font-weight:700;color:#374151;margin-bottom:8px;">
-          Derived Outputs (at P50)</div>
-        """, unsafe_allow_html=True)
-        # Compute VI for selected tech using P50 values
-        _r_base = compute(eff_prices, t_r, st.session_state.ti)
-        _yx_p50 = _r_base["mb"]   # annual Y+X
-        _gp_c   = _gp_likely * _cv_likely  # GP × C_conv denominator per unit
-        # Annualised output as capacity proxy
-        _output = ti["annual_output"][t_r] if ti["annual_output"][t_r] > 0 else 1
-        _vi_p50 = _yx_p50 / (_gp_c * _output) if _gp_c * _output > 0 else 0
-        # Break-even green price = Y+X / (output × C_conv × GP)  rearranged
-        _be_green_price = _yx_p50 / _output if _output > 0 else 0
-        _be_gp_pct = (_be_green_price / _cv_likely * 100) if _cv_likely > 0 else 0
-
-        st.markdown(f"""
-        <div style="background:#f0fdf4;border:1px solid #a7f3d0;border-radius:12px;padding:16px;">
-          <div style="margin-bottom:10px;">
-            <div class="kpi-label">Break-even Green Price</div>
-            <div class="kpi-value">${_be_green_price:.1f}/MWh</div>
-          </div>
-          <div style="margin-bottom:10px;">
-            <div class="kpi-label">Break-even Green Premium</div>
-            <div class="kpi-value">{_be_gp_pct:.0f}%</div>
-          </div>
-          <div>
-            <div class="kpi-label">Current VI (P50)</div>
-            <div class="kpi-value" style="color:{'#059669' if _vi_p50>=1 else '#dc2626'};">{_vi_p50:.2f}</div>
-            <div class="kpi-m-sub">{"Above threshold" if _vi_p50>=1 else "Below threshold"}</div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Compute VI across all countries
-    st.markdown('<div class="sec-head" style="margin-top:20px;">Viability Index by Country  (P50)</div>', unsafe_allow_html=True)
-
-    @st.cache_data(show_spinner=False)
-    def compute_vi_all(tech_idx, scenario, gp, c_conv, ti_hash):
-        rows = []
-        _eff = get_scenario_prices(DEFAULT_PRICES, scenario)
-        for _c, _cd in COUNTRY_DATA_RAW.items():
-            _rcp = COUNTRY_CARBON_PRICES.get(_c)
-            _cp = dict(_eff)
-            if _rcp:
-                _tm = _cd["techs"].get(TECHNOLOGIES[tech_idx], {})
-                if "ETS" in _tm:          _cp["ets"]  = _rcp * SCENARIO_MULT[scenario].get("ets",1)
-                elif "Carbon Tax" in _tm: _cp["ctax"] = _rcp * SCENARIO_MULT[scenario].get("ctax",1)
-            _r = compute_country_excel(_c, _cp, tech_idx, ti)
-            _yx = _r["mb"]
-            _out = ti["annual_output"][tech_idx]
-            _vi = _yx / (gp * c_conv * _out) if gp * c_conv * _out > 0 else 0
-            _be_gp = (_yx / (_out * c_conv * 100)) if _out * c_conv > 0 else 0
-            _be_price = _yx / _out if _out > 0 else 0
-            _conf = min(100, max(20, 50 + len(_cd["techs"].get(TECHNOLOGIES[tech_idx], {})) * 8))
-            _coords = COUNTRY_COORDS.get(_c)
-            rows.append({
-                "Country": _c, "ISO3": _cd.get("iso3",""),
-                "Region": _cd.get("region",""),
-                "VI_P50": round(_vi, 2),
-                "Y+X ($M/yr)": round(_yx/1e6, 2),
-                "Break-even Green Price": round(_be_price, 1),
-                "Break-even GP (%)": round(_be_gp, 1),
-                "Confidence (%)": _conf,
-                "Viable": "Yes" if _vi >= 1 else "No",
-                "_lat": _coords[0] if _coords else None,
-                "_lon": _coords[1] if _coords else None,
-            })
-        return pd.DataFrame(rows).sort_values("VI_P50", ascending=False).reset_index(drop=True)
-
-    _ti_hash3 = str(hash(str({k:v[t_r] for k,v in ti.items()})))
-    df_vi = compute_vi_all(t_r, pol_sc, _gp_likely, _cv_likely, _ti_hash3)
-
-    # Summary KPIs
-    _avg_vi   = df_vi["VI_P50"].mean()
-    _viable_n = (df_vi["Viable"] == "Yes").sum()
-    _hi_vi    = df_vi.iloc[0]
-    _lo_vi    = df_vi.iloc[-1]
-    _avg_conf = df_vi["Confidence (%)"].mean()
-    _vi_viable_techs = sum(1 for i in range(len(TECHNOLOGIES))
-                           if compute(eff_prices, i, ti)["mb"] / (_gp_likely * _cv_likely * max(ti["annual_output"][i],1)) >= 1)
-
-    st.markdown(f"""
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:18px;">
-      {''.join([
-        f'<div class="kpi-card"><div class="kpi-label">{lbl}</div><div class="kpi-value" style="color:{col};">{val}</div></div>'
-        for val, lbl, col in [
-            (f"{_avg_vi:.2f}", "Average VI (All Countries)", "#059669" if _avg_vi>=1 else "#dc2626"),
-            (f"{_viable_n}/{len(df_vi)}", "Countries with VI ≥ 1", "#111827"),
-            (f"{_hi_vi['VI_P50']:.2f}", f"Highest VI ({_hi_vi['Country'][:10]})", "#059669"),
-            (f"{_lo_vi['VI_P50']:.2f}", f"Lowest VI ({_lo_vi['Country'][:10]})", "#dc2626"),
-            (f"{_avg_conf:.0f}%", "Avg Confidence Score", "#111827"),
-            (f"{_vi_viable_techs}/44", "Technologies Viable (VI≥1)", "#111827"),
-        ]
-      ])}
-    </div>
-    """, unsafe_allow_html=True)
-
-    _p3r1, _p3r2 = st.columns([1.6, 1])
-
-    with _p3r1:
-        # VI map — scatter pin coloured by VI level
-        st.markdown('<div class="sec-head">VI by Country (P50)</div>', unsafe_allow_html=True)
-        _df_vpin = df_vi[df_vi["_lat"].notna()].copy()
-        _fig_vi_map = go.Figure()
-        for _tier_v, _mask_v, _col_v, _sz_v in [
-            ("VI ≥ 1.5 (High)",       _df_vpin["VI_P50"] >= 1.5,                                  "#064e3b", 10),
-            ("1.0 ≤ VI < 1.5",        (_df_vpin["VI_P50"] >= 1) & (_df_vpin["VI_P50"] < 1.5),     "#059669", 8),
-            ("0.5 ≤ VI < 1.0",        (_df_vpin["VI_P50"] >= 0.5) & (_df_vpin["VI_P50"] < 1),     "#fbbf24", 7),
-            ("0 ≤ VI < 0.5",          (_df_vpin["VI_P50"] >= 0) & (_df_vpin["VI_P50"] < 0.5),     "#f97316", 6),
-            ("VI < 0",                _df_vpin["VI_P50"] < 0,                                      "#dc2626", 5),
-        ]:
-            _df_vt = _df_vpin[_mask_v]
-            if len(_df_vt):
-                _fig_vi_map.add_trace(go.Scattergeo(
-                    lat=_df_vt["_lat"], lon=_df_vt["_lon"],
-                    text=_df_vt["Country"],
-                    customdata=_df_vt[["Country","VI_P50","Y+X ($M/yr)","Confidence (%)"]].values,
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>"
-                        "VI (P50): <b>%{customdata[1]:.2f}</b><br>"
-                        "Y+X: $%{customdata[2]:.1f}M/yr<br>"
-                        "Confidence: %{customdata[3]:.0f}%"
-                        "<extra></extra>"
-                    ),
-                    mode="markers",
-                    marker=dict(size=_sz_v, color=_col_v, opacity=0.85,
-                                line=dict(width=0.5, color="#ffffff")),
-                    name=_tier_v,
-                ))
-        _fig_vi_map.update_geos(showcountries=True, countrycolor="#d1d5db",
-                                showland=True, landcolor="#f9fafb",
-                                showocean=True, oceancolor="#e0f2fe",
-                                showframe=False, projection_type="equirectangular",
-                                lataxis_range=[-60,85])
-        _fig_vi_map.update_layout(**pl_geo(400,ml=0,mr=0,mt=4,mb=0),
-                                  geo=dict(bgcolor="rgba(0,0,0,0)"),
-                                  legend=dict(orientation="h",x=0,y=-0.03,
-                                             bgcolor="rgba(255,255,255,0.9)",
-                                             bordercolor="#e2e8f0",borderwidth=1,font=dict(size=9)))
-        st.plotly_chart(_fig_vi_map, use_container_width=True)
-
-        # VI over time
-        st.markdown('<div class="sec-head">VI Over Time  (Global Average)</div>', unsafe_allow_html=True)
-        _years = list(range(2024, 2051))
-        _mc_key_p3 = f"mc_{t_r}_{pol_sc}_p3"
-        if _mc_key_p3 not in st.session_state.mc_cache:
-            with st.spinner("Running simulations…"):
-                st.session_state.mc_cache[_mc_key_p3] = compute_mc_revenue(t_r, ti, eff_prices, n_sims=500)
-        _mc3 = st.session_state.mc_cache[_mc_key_p3]
-        # Build VI trajectory using MC fan data
-        _n_yr = len(_mc3["mb_annual_p50"])
-        _yr_base = 2025
-        _vi_years = [_yr_base + i for i in range(min(_n_yr, len(_years)))]
-        _denom = _gp_likely * _cv_likely * ti["annual_output"][t_r]
-        _vi_p50_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p50"][:len(_vi_years)]]
-        _vi_p10_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p10"][:len(_vi_years)]]
-        _vi_p90_t = [v / _denom if _denom > 0 else 0 for v in _mc3["mb_annual_p90"][:len(_vi_years)]]
-
-        _fig_vi_time = go.Figure()
-        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p90_t, name="P90",
-            line=dict(color="#34d399", width=1, dash="dot")))
-        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p50_t, name="P50 (Median)",
-            line=dict(color="#059669", width=2.5),
-            fill="tonexty", fillcolor="rgba(5,150,105,0.1)"))
-        _fig_vi_time.add_trace(go.Scatter(x=_vi_years, y=_vi_p10_t, name="P10",
-            line=dict(color="#dc2626", width=1, dash="dot"),
-            fill="tonexty", fillcolor="rgba(220,38,38,0.06)"))
-        _fig_vi_time.add_hline(y=1.0, line_color="#9ca3af", line_dash="dash", line_width=1.5,
-                               annotation_text="VI = 1 (Threshold)", annotation_font_size=9)
-        _fig_vi_time.update_layout(**pl(260), xaxis_title="Year", yaxis_title="Viability Index (VI)")
-        st.plotly_chart(_fig_vi_time, use_container_width=True)
-
-    with _p3r2:
-        # VI Distribution box plot
-        st.markdown('<div class="sec-head">VI Distribution Across Countries</div>', unsafe_allow_html=True)
-        _pcts = ["P5","P25","P50","P75","P95"]
-        _pct_vals = [df_vi["VI_P50"].quantile(p/100) for p in [5,25,50,75,95]]
-        _fig_box_vi = go.Figure(go.Box(
-            y=df_vi["VI_P50"].tolist(), name="VI Distribution",
-            marker_color="#059669", line_color="#047857",
-            boxpoints="outliers",
-        ))
-        _fig_box_vi.add_hline(y=1.0, line_dash="dash", line_color="#dc2626",
-                              annotation_text="VI=1", annotation_font_color="#dc2626", annotation_font_size=9)
-        _fig_box_vi.update_layout(**pl(260), yaxis_title="Viability Index")
-        st.plotly_chart(_fig_box_vi, use_container_width=True)
-
-        # Confidence Score Distribution
-        st.markdown('<div class="sec-head">VI Confidence Score Distribution</div>', unsafe_allow_html=True)
-        _hi_conf = (df_vi["Confidence (%)"] >= 75).sum()
-        _med_conf = ((df_vi["Confidence (%)"] >= 50) & (df_vi["Confidence (%)"] < 75)).sum()
-        _lo_conf  = (df_vi["Confidence (%)"] < 50).sum()
-        _fig_conf = go.Figure(go.Pie(
-            labels=["High (≥75%)", "Medium (50–75%)", "Low (<50%)"],
-            values=[_hi_conf, _med_conf, _lo_conf],
-            hole=0.6,
-            marker_colors=["#059669","#f59e0b","#dc2626"],
-            textfont=dict(size=9),
-        ))
-        _fig_conf.update_layout(**pl(220,ml=0,mr=0,mt=0,mb=0))
-        st.plotly_chart(_fig_conf, use_container_width=True)
-        st.markdown(f"""
-        <div style="text-align:center;font-size:0.7rem;color:#6b7280;">
-          {_avg_conf:.0f}% Average Confidence  &middot;
-          High: {_hi_conf} | Med: {_med_conf} | Low: {_lo_conf}
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Break-even Table
-    st.markdown('<div class="sec-head" style="margin-top:20px;">Break-Even Pricing Analysis  (VI = 1)</div>', unsafe_allow_html=True)
-    _be_cols = st.columns([3,1])
-    with _be_cols[0]:
-        _df_be = df_vi[["Country","Region","VI_P50","Break-even Green Price",
-                         "Break-even GP (%)","Confidence (%)","Viable"]].copy()
-        _df_be = _df_be.rename(columns={
-            "VI_P50":"VI (P50)","Break-even Green Price":"BE Green Price (USD/MWh)",
-            "Break-even GP (%)":"BE Green Premium (%)"
-        })
-        st.dataframe(
-            _df_be.reset_index(drop=True).head(50),
-            use_container_width=True, height=300
-        )
-
-    # Technology Ranking
-    st.markdown('<div class="sec-head" style="margin-top:20px;">Technology Ranking by VI (P50)</div>', unsafe_allow_html=True)
-    @st.cache_data(show_spinner=False)
-    def rank_all_technologies(scenario, gp, c_conv, ti_hash):
-        ranks = []
-        _eff = get_scenario_prices(DEFAULT_PRICES, scenario)
-        for _i, _t in enumerate(TECHNOLOGIES):
-            _r = compute(_eff, _i, ti)
-            _out = ti["annual_output"][_i]
-            _vi_t = _r["mb"] / (gp * c_conv * _out) if gp * c_conv * _out > 0 else 0
-            _conf = min(100, 45 + sum(1 for _cd in COUNTRY_DATA_RAW.values()
-                                      if _cd["techs"].get(_t, {})) // 3)
-            ranks.append({
-                "Rank": _i+1, "Technology": _t, "Category": TECH_CATEGORIES[_i] if _i < len(TECH_CATEGORIES) else "",
-                "VI (P50)": round(_vi_t, 2),
-                "Annual Y+X ($M)": round(_r["mb"]/1e6,2),
-                "Viable?": "Yes" if _vi_t >= 1 else "No",
-                "Confidence (%)": _conf,
-            })
-        _df_r = pd.DataFrame(ranks).sort_values("VI (P50)", ascending=False).reset_index(drop=True)
-        _df_r["Rank"] = range(1, len(_df_r)+1)
-        return _df_r
-
-    _ti_hash_rank = str(hash(str({k:v[t_r] for k,v in ti.items()})))
-    df_ranks = rank_all_technologies(pol_sc, _gp_likely, _cv_likely, _ti_hash_rank)
-    st.dataframe(df_ranks.set_index("Rank"), use_container_width=True, height=350)
-
-    # Download
-    _dl1, _dl2, _dl3 = st.columns([1,1,2])
-    with _dl1:
-        st.download_button("Download VI Results", df_vi.to_csv(index=False).encode(), "vi_results.csv", "text/csv")
-    with _dl2:
-        st.download_button("Download Technology Ranking", df_ranks.to_csv(index=False).encode(), "vi_ranking.csv", "text/csv")
-
-    # Back nav
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    if st.button("← Back to Revenue Estimation", key="p3_back"):
-        st.session_state.page = "part2"; st.rerun()
+    st.markdown(f"## 🌱 MIDDIC")
+    st.caption("Viability Engine v1.0")
+    page = st.radio("Navigation", list(PAGES.keys()), label_visibility="collapsed")
+    st.markdown("---")
+
+PAGES[page]()
+
+st.markdown("---")
+st.caption("MIDDIC Viability Engine • 43 technologies × 11 mechanisms × 184 countries • Monte Carlo GBM")
