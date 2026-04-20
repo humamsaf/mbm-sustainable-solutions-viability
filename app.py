@@ -9,12 +9,7 @@ Run:
     pip install streamlit plotly numpy pandas
     streamlit run middic_app.py
 """
-from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import streamlit as st
 
 # ============================================================================
 # PAGE CONFIG & THEME
